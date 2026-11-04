@@ -8,12 +8,23 @@
 桌面 App（desktop profile）
 └─ dsh-superagent-console
    ├─ 宿主 /orchestrator/api        → 同源代理转发 127.0.0.1:3082（补 x-orchestrator-request 头）
-   ├─ 宿主 /superagent-console/api  → 控制台自有 API（检测 / 安装 / 启动 / 重启）
-   └─ 客户端                        → 门控面板：引擎在线时挂官方面板，
+   ├─ 宿主 /superagent-console/api  → 控制台自有 API（检测 / 安装 / 启动 / 重启 / 插件管理）
+   └─ 客户端                        → 门控面板：引擎在线时挂官方面板（含「插件」管理 Tab），
                                        否则渲染安装引导卡（状态卡）
+
+## 插件管理 Tab（2026-11-04）
+
+官方面板内新增「插件」Tab（位于「设置」之后），管理 superagent 引擎 profile 的插件依赖：
+
+- **列表**：profile package.json 的依赖清单 + 已安装版本/描述 + 是否声明 `dsh.bundle` + 是否在 `dsh.profile.bundles` 挂载集内；引擎核心 `dsh-superagent` 标记保护（不可移除/停用）。
+- **安装 / 移除**：走官方 CLI 路径 `dsh plugin --profile superagent add|remove <spec>`（execFile argv 数组、单飞互斥、输出脱敏、audit.jsonl 审计），复用安装器的 bundle reconcile 语义；改动在**重启引擎后生效**，页面提供重启按钮。
+- **启停（挂载集编辑）**：直接原子改写 profile package.json 的 `dsh.profile.bundles`（保留 0600 权限；无变更不写盘）；与安装/移除共用同一互斥。
+- API：`GET/POST /superagent-console/api/plugins[/install|/remove|/enable|/operation]`，实现见 `src/plugins.ts`（运行时验证：假 profile 16 项断言 + 真实 profile 只读 list）。
+
+vendor 补丁（seams）：`sync-client.mjs` 在每次 vendor 复制后，对 `client/route.ts`（TABS/Route/parseRoute）、`client/app.tsx`（路由分支 + import）、`client/locales.ts`（`tab.plugins` + `plugins.*` 双语词典）施加**精确锚点补丁**；上游锚点漂移会让 sync 显式失败，不会打出半接线的 Tab。页面本体在 `src/client/plugins-page.tsx`（自有文件，不受 vendor 覆盖）。
 ```
 
-客户端构建：`sync-client.mjs` 从原型 checkout **递归 vendor 客户端源码图**到 `src/vendor/`（104 个文件，树形镜像，相对引用原样保留），再由 tsdown 打成带 `window.__ModuleLoader__` banner 的自建 bundle（id `dsh-superagent-console`）。运行时外部依赖只有 react 系，与官方编译产物一致（零 node:*、零 zod 内联）。
+客户端构建：`sync-client.mjs` 从原型 checkout **递归 vendor 客户端源码图**到 `src/vendor/`（104 个文件，树形镜像，相对引用原样保留），随后施加「插件 Tab」seam 补丁（见下节），再由 tsdown 打成带 `window.__ModuleLoader__` banner 的自建 bundle（id `dsh-superagent-console`）。运行时外部依赖只有 react 系，与官方编译产物一致（零 node:*、零 zod 内联）。
 
 ## 引擎检测（L0-L3 分层探针）
 

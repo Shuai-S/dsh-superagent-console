@@ -16,6 +16,12 @@
  * The importer crawls relative imports (from/import/import(), including
  * `?raw` suffixed ones) starting from src/client/** and src/navigation.ts,
  * so new upstream files are picked up automatically on the next sync.
+ *
+ * After copying, a seam patch wires our Plugins tab (src/client/plugins-page.tsx)
+ * into the vendored panel: route type/tab list, the App route switch, and the
+ * plugins.* dictionaries. Each patch demands exact upstream anchors — an
+ * upstream edit that removes one fails the sync loudly instead of shipping a
+ * half-wired tab.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -99,6 +105,75 @@ if (!copied.some((rel) => rel === 'client/app.tsx')) {
   console.error('[sync-client] upstream client graph did not resolve; nothing usable vendored')
   process.exit(1)
 }
+
+/**
+ * Seam patches for the Plugins tab, applied to the fresh vendor copy.
+ * Every anchor must match exactly once; a miss means upstream drifted and
+ * the sync fails before a half-wired tab can be built.
+ */
+function patchFile(rel, edits) {
+  const file = join(destSrc, rel)
+  let text = readFileSync(file, 'utf8')
+  for (const [find, replace] of edits) {
+    const hits = text.split(find).length - 1
+    if (hits !== 1) {
+      console.error('[sync-client] patch anchor matched ' + hits + ' times in ' + rel + ' (need exactly 1):\n  ' + find)
+      process.exit(1)
+    }
+    text = text.replace(find, replace)
+  }
+  writeFileSync(file, text)
+  console.log('[sync-client] patched ' + rel + ' (Plugins tab seams)')
+}
+
+patchFile('client/route.ts', [
+  // Tab bar: plugins sits after settings, matching the console header order.
+  ["export const TABS = ['overview', 'source', 'trigger', 'eval', 'execution', 'settings'] as const",
+   "export const TABS = ['overview', 'source', 'trigger', 'eval', 'execution', 'settings', 'plugins'] as const"],
+  // Route union gains the plugins root (no id, no query).
+  ["  | { page: 'settings'; id?: undefined; query: { group: SettingsGroup; source?: string; version?: string } }",
+   "  | { page: 'settings'; id?: undefined; query: { group: SettingsGroup; source?: string; version?: string } }\n  | { page: 'plugins'; id?: undefined; query?: undefined }"],
+  // parseRoute: the plugins root parses like overview/source.
+  ["    case 'overview': case 'source': return { page }",
+   "    case 'overview': case 'source': case 'plugins': return { page }"],
+])
+
+patchFile('client/app.tsx', [
+  // Our page, imported across the vendor boundary into the official panel.
+  ["import { Button, Dot, Icon, Input, Modal, SegmentedTabs } from './controls.tsx'",
+   "import { PluginsPage } from '../../client/plugins-page.tsx'\nimport { Button, Dot, Icon, Input, Modal, SegmentedTabs } from './controls.tsx'"],
+  ["      case 'eval': return <EvalStatus",
+   "      case 'plugins': return <PluginsPage />\n      case 'eval': return <EvalStatus"],
+])
+
+const PLUGINS_LOCALE_KEYS = [
+  "  'plugins.hint': ['管理引擎 profile 的插件依赖。安装、移除与启停写入引擎的独立 profile，重启引擎后生效。', \"Manage the engine profile's plugin dependencies. Installs, removals, and enablement go to the engine's own profile and apply after an engine restart.\"],",
+  "  'plugins.installLabel': ['安装插件', 'Install plugin'],",
+  "  'plugins.installing': ['正在安装…', 'Installing…'],",
+  "  'plugins.specPlaceholder': ['包名 / git URL / github:owner/repo / tarball / 绝对路径', 'package / git URL / github:owner/repo / tarball / absolute path'],",
+  "  'plugins.remove': ['移除', 'Remove'],",
+  "  'plugins.removeTitle': ['移除插件', 'Remove plugin'],",
+  "  'plugins.removeConfirm': ['从引擎 profile 移除 {name}？移除在重启引擎后生效。', 'Remove {name} from the engine profile? It disappears after an engine restart.'],",
+  "  'plugins.enable': ['启用', 'Enable'],",
+  "  'plugins.disable': ['停用', 'Disable'],",
+  "  'plugins.protected': ['引擎核心', 'engine core'],",
+  "  'plugins.notBundle': ['未声明 dsh.bundle，仅作为依赖安装', 'declares no dsh.bundle — installed as a plain dependency'],",
+  "  'plugins.dependencyTag': ['依赖', 'dependency'],",
+  "  'plugins.opInstallRunning': ['正在安装 {target}…', 'Installing {target}…'],",
+  "  'plugins.opRemoveRunning': ['正在移除 {target}…', 'Removing {target}…'],",
+  "  'plugins.opFailed': ['上次操作失败：{error}', 'Last operation failed: {error}'],",
+  "  'plugins.restartHint': ['改动已保存，重启引擎后生效。', 'Saved. Restart the engine to apply.'],",
+  "  'plugins.restart': ['重启引擎', 'Restart engine'],",
+  "  'plugins.restarting': ['正在重启…', 'Restarting…'],",
+  "  'plugins.empty': ['引擎 profile 还没有安装任何插件依赖。', 'No plugin dependencies are installed in the engine profile yet.'],",
+]
+
+patchFile('client/locales.ts', [
+  ["  'tab.execution': ['执行', 'Execution'],",
+   "  'tab.execution': ['执行', 'Execution'],\n  'tab.plugins': ['插件', 'Plugins'],"],
+  ["  'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],",
+   "  'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],\n  // Plugins tab (dsh-superagent-console seam; see scripts/sync-client.mjs)\n" + PLUGINS_LOCALE_KEYS.join('\n')],
+])
 
 /**
  * Service type augmentations for the vendored engine sources. The engine's

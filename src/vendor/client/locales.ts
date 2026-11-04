@@ -116,6 +116,7 @@ const TEXT = {
   'tab.trigger': ['触发', 'Trigger'],
   'tab.eval': ['评估', 'Eval'],
   'tab.execution': ['执行', 'Execution'],
+  'tab.plugins': ['插件', 'Plugins'],
   // Overview
   sourceError: ['{source} 来源异常', '{source} Source failing'],
   needsYouNone: ['没有待处理的工单。', 'No pending Tickets.'],
@@ -746,6 +747,26 @@ const TEXT = {
   'healthCode.feishuCliUnset': ['来源已打开，还没有设置机器人的 lark-cli', HEALTH_TEXT.feishuCliUnset],
   'healthCode.feishuBotMissing': ['等待飞书机器人', HEALTH_TEXT.feishuBotMissing],
   'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],
+  // Plugins tab (dsh-superagent-console seam; see scripts/sync-client.mjs)
+  'plugins.hint': ['管理引擎 profile 的插件依赖。安装、移除与启停写入引擎的独立 profile，重启引擎后生效。', "Manage the engine profile's plugin dependencies. Installs, removals, and enablement go to the engine's own profile and apply after an engine restart."],
+  'plugins.installLabel': ['安装插件', 'Install plugin'],
+  'plugins.installing': ['正在安装…', 'Installing…'],
+  'plugins.specPlaceholder': ['包名 / git URL / github:owner/repo / tarball / 绝对路径', 'package / git URL / github:owner/repo / tarball / absolute path'],
+  'plugins.remove': ['移除', 'Remove'],
+  'plugins.removeTitle': ['移除插件', 'Remove plugin'],
+  'plugins.removeConfirm': ['从引擎 profile 移除 {name}？移除在重启引擎后生效。', 'Remove {name} from the engine profile? It disappears after an engine restart.'],
+  'plugins.enable': ['启用', 'Enable'],
+  'plugins.disable': ['停用', 'Disable'],
+  'plugins.protected': ['引擎核心', 'engine core'],
+  'plugins.notBundle': ['未声明 dsh.bundle，仅作为依赖安装', 'declares no dsh.bundle — installed as a plain dependency'],
+  'plugins.dependencyTag': ['依赖', 'dependency'],
+  'plugins.opInstallRunning': ['正在安装 {target}…', 'Installing {target}…'],
+  'plugins.opRemoveRunning': ['正在移除 {target}…', 'Removing {target}…'],
+  'plugins.opFailed': ['上次操作失败：{error}', 'Last operation failed: {error}'],
+  'plugins.restartHint': ['改动已保存，重启引擎后生效。', 'Saved. Restart the engine to apply.'],
+  'plugins.restart': ['重启引擎', 'Restart engine'],
+  'plugins.restarting': ['正在重启…', 'Restarting…'],
+  'plugins.empty': ['引擎 profile 还没有安装任何插件依赖。', 'No plugin dependencies are installed in the engine profile yet.'],
 } as const satisfies Record<string, readonly [string, string]>
 export type DshSuperagentKey = keyof typeof TEXT
 const language = (index: 0 | 1) => Object.fromEntries(Object.entries(TEXT).map(([key, pair]) => [key, pair[index]])) as Record<DshSuperagentKey, string>
