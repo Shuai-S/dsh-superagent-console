@@ -1,0 +1,84 @@
+# 发布工作流：push tag（v<package.json version>）触发，构建后发布到 npm 并创建 GitHub Release。
+#
+# 发布方式（push main 绝不会触发发布）：
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# 一次性前置配置（发布前必做）：
+#   gh secret set NPM_TOKEN -R Shuai-S/dsh-superagent-console
+#   （npmjs.com → Access Tokens → Generate new token，需有 dsh-superagent-console 的发布权限）
+#
+# 设计说明：
+# - 构建只使用仓库内已入库的 src/vendor（scripts/sync-client.mjs 的产物），不 checkout
+#   deepseek-ai/dsh-superagent-prototype，保证发布内容与 tag 指向的提交逐字节对应，
+#   不受上游漂移影响（本地开发时再跑 pnpm sync-client 保持 vendor 新鲜）。
+# - 不跑 pnpm typecheck：src/vendor 存在上游既有类型错误（settings-kit.tsx TS2339），
+#   不影响运行时构建；上游修复并重新 vendored 后可把 typecheck 加回流水线。
+# - pnpm 版本在此显式钉住（本仓 package.json 暂无 packageManager 字段），与生成
+#   pnpm-lock.yaml 的本机版本一致。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # 创建 GitHub Release 并上传 tgz
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.23.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify tag matches package version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "v$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME 与 package.json 版本 v$PKG_VERSION 不一致。"
+            echo "请先更新 package.json version，再打同名 tag。"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm tsdown
+
+      - name: Pack tarball
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - name: Create GitHub Release with tarball
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" \
+                 --title "$GITHUB_REF_NAME" \
+                 --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/dsh-superagent-console-*.tgz --clobber
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish dist/dsh-superagent-console-*.tgz --registry=https://registry.npmjs.org --access public
