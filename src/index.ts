@@ -20,9 +20,9 @@ export const name: string = 'dsh-superagent-console'
 
 export { Config, type ResolvedConsoleConfig } from './config.ts'
 
-// Defensive: no hard service injection, so the plugin loads even where the
-// webServer service is absent (it then no-ops with a logged warning).
-export const inject: string[] = []
+// cordis guards service properties: ctx.webServer access requires declaring
+// 'webServer' in inject (activation fails otherwise — verified 2026-11-04).
+export const inject: string[] = ['webServer']
 
 export function apply(ctx: Context, config?: { target?: string }): void {
   const target = config?.target ?? 'http://127.0.0.1:3082'
