@@ -1,37 +1,130 @@
 /**
- * Vendor the official dsh-superagent panel client build into lib/client.js,
- * rewriting the ModuleLoader registration id to this plugin's name.
+ * Vendor the official dsh-superagent client SOURCE tree into src/vendor/,
+ * mirroring the prototype's src/ layout so every relative import inside the
+ * vendored files keeps resolving. Our own client entry (src/client.tsx) then
+ * builds one gated bundle around the official panel components.
+ *
+ * Why source instead of the compiled lib/client.js: the compiled bundle wraps
+ * itself in window.__ModuleLoader__.load(...) and exports only apply/inject,
+ * so a wrapper cannot compose its panel components. Building our own bundle
+ * needs the source graph.
  *
  * Source resolution order:
- *   1. $SUPERAGENT_CLIENT (explicit path to a built client.js)
- *   2. ../dsh-superagent-prototype/lib/client.js (sibling checkout)
+ *   1. $SUPERAGENT_SRC (path to the dsh-superagent-prototype checkout)
+ *   2. ../dsh-superagent-prototype (sibling checkout)
+ *
+ * The importer crawls relative imports (from/import/import(), including
+ * `?raw` suffixed ones) starting from src/client/** and src/navigation.ts,
+ * so new upstream files are picked up automatically on the next sync.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const candidates = [
-  process.env.SUPERAGENT_CLIENT,
-  resolve(root, '../dsh-superagent-prototype/lib/client.js'),
-].filter(Boolean)
 
-const source = candidates.find((p) => existsSync(p))
-if (!source) {
-  console.error('[sync-client] no built client found; looked at:\n  ' + candidates.join('\n  '))
-  console.error('[sync-client] run "pnpm build" in the dsh-superagent-prototype checkout first')
+/**
+ * Sibling checkouts, most specific first. Inside a worktree the sibling lives
+ * next to the MAIN checkout, so resolve it from the git common dir.
+ */
+function siblingCandidates() {
+  const list = [process.env.SUPERAGENT_SRC].filter(Boolean)
+  list.push(resolve(root, '../dsh-superagent-prototype'))
+  try {
+    const commonDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root }).toString().trim()
+    list.push(resolve(dirname(commonDir), '..', 'dsh-superagent-prototype'))
+  } catch {
+    // Not a git checkout — the first two candidates may still hit.
+  }
+  return list
+}
+
+const prototypeSrc = siblingCandidates().map((p) => join(p, 'src')).find((p) => existsSync(p))
+if (!prototypeSrc) {
+  console.error('[sync-client] no prototype checkout found; looked at:\n  ' + siblingCandidates().join('\n  '))
   process.exit(1)
 }
 
-const outDir = join(root, 'lib')
-mkdirSync(outDir, { recursive: true })
-const outFile = join(outDir, 'client.js')
+const destSrc = join(root, 'src', 'vendor')
+rmSync(destSrc, { recursive: true, force: true })
+mkdirSync(destSrc, { recursive: true })
 
-const code = readFileSync(source, 'utf8')
-const rewritten = code.replace('id: "dsh-superagent"', 'id: "dsh-superagent-console"')
-if (rewritten === code) {
-  console.error('[sync-client] warning: banner id "dsh-superagent" not found in source; copied verbatim')
+/** Matches relative import specifiers: `from './x.ts'`, `import './y.css?raw'`, `import('./z.ts')`. */
+const IMPORT_RE = /(?:\bfrom\s+|\bimport\s+|\bimport\()\s*['"](\.[^'"]+)['"]/g
+const RESOLVE_EXTS = ['', '.ts', '.tsx', '.css', '.json']
+
+const copied = []
+const queued = ['client/index.tsx', 'client/app.tsx', 'client/locales.ts', 'client/deployment.tsx', 'client/css.d.ts', 'navigation.ts']
+const seen = new Set()
+
+function resolveSpecifier(importerRel, spec) {
+  const raw = spec.endsWith('?raw') ? spec.slice(0, -4) : spec
+  const base = resolve(join(prototypeSrc, dirname(importerRel)), raw)
+  const rel = relative(prototypeSrc, base)
+  for (const ext of RESOLVE_EXTS) {
+    const candidate = rel + ext
+    const absolute = join(prototypeSrc, candidate)
+    if (existsSync(absolute) && statSync(absolute).isFile()) return candidate
+  }
+  return null
 }
-writeFileSync(outFile, rewritten)
-if (existsSync(source + '.map')) copyFileSync(source + '.map', outFile + '.map')
-console.log('[sync-client] vendored', source, '->', outFile)
+
+function vendorFile(rel) {
+  if (seen.has(rel)) return
+  seen.add(rel)
+  const absolute = join(prototypeSrc, rel)
+  if (!existsSync(absolute)) {
+    console.error(`[sync-client] warning: ${rel} does not exist upstream, skipped`)
+    return
+  }
+  const destination = join(destSrc, rel)
+  mkdirSync(dirname(destination), { recursive: true })
+  copyFileSync(absolute, destination)
+  copied.push(rel)
+
+  if (!/\.(ts|tsx)$/.test(rel)) return
+  const code = readFileSync(absolute, 'utf8')
+  for (const match of code.matchAll(IMPORT_RE)) {
+    const resolved = resolveSpecifier(rel, match[1])
+    if (resolved) queued.push(resolved)
+  }
+}
+
+while (queued.length > 0) {
+  vendorFile(queued.shift())
+}
+
+if (!copied.some((rel) => rel === 'client/app.tsx')) {
+  console.error('[sync-client] upstream client graph did not resolve; nothing usable vendored')
+  process.exit(1)
+}
+
+/**
+ * Service type augmentations for the vendored engine sources. The engine's
+ * composition root (app/runtime.ts, intentionally not vendored) loads these
+ * package augmentations by importing each service package; our subset reaches
+ * their types only indirectly, so this module loads them explicitly and
+ * declares the `orchestrator` service the same way runtime.ts does.
+ */
+const servicesDts = `\
+/**
+ * Generated by scripts/sync-client.mjs — do not edit; re-run the sync instead.
+ * Service type augmentations for the vendored engine sources (see runtime.ts upstream).
+ */
+import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type {} from '@deepseek-ai/dsh-permission-presets'
+import type {} from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-subprocess'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-workspace'
+import type { SourceHost } from './sources/host.ts'
+
+declare module '@deepseek-ai/cordis' { interface Context { orchestrator: SourceHost } }
+`
+writeFileSync(join(destSrc, 'services.d.ts'), servicesDts)
+
+console.log(`[sync-client] vendored ${copied.length} files from ${prototypeSrc} -> ${destSrc}`)
+for (const rel of copied.sort()) console.log('  ' + rel)
+if (readdirSync(destSrc).length === 0) process.exit(1)
