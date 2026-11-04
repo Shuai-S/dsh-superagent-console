@@ -243,16 +243,22 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
           setEditing(null)
         }}>{t('rowSave')}</Button>
       </>}>
-      {editing !== null && field.columns.map(column => <Field key={column.key} label={localized(t, column.label)}>
-        {column.type === 'select'
-          ? <select className="dt-select" aria-label={localized(t, column.label)} value={draft[column.key] ?? column.options[0]!.value}
-              onChange={event => setDraft({ ...draft, [column.key]: event.target.value })}>
-              {column.options.map(option => <option key={option.value} value={option.value}>{localized(t, option.label)}</option>)}
-            </select>
-          : <Input className={column.optional ? undefined : 'dt-mono'} aria-label={localized(t, column.label)} placeholder={localized(t, column.label)}
-              required={!column.optional} pattern={column.pattern} spellCheck={false} value={draft[column.key] ?? ''}
-              onChange={event => setDraft({ ...draft, [column.key]: event.target.value })} />}
-      </Field>)}
+      {editing !== null && field.presets && field.presets.length > 0 && <div className="dt-rows-presets">
+        {field.presets.map(preset => <Button key={preset.label.en} variant="ghost" size="sm"
+          onClick={() => setDraft({ ...draft, ...preset.values })}>{localized(t, preset.label)}</Button>)}
+      </div>}
+      {editing !== null && field.columns.map(column => <div key={column.key} className={column.optional ? undefined : 'dt-required'}>
+        <Field label={localized(t, column.label)} hint={column.hint ? localized(t, column.hint) : undefined}>
+          {column.type === 'select'
+            ? <select className="dt-select" aria-label={localized(t, column.label)} value={draft[column.key] ?? column.options[0]!.value}
+                onChange={event => setDraft({ ...draft, [column.key]: event.target.value })}>
+                {column.options.map(option => <option key={option.value} value={option.value}>{localized(t, option.label)}</option>)}
+              </select>
+            : <Input className={column.optional ? undefined : 'dt-mono'} aria-label={localized(t, column.label)} placeholder={localized(t, column.label)}
+                required={!column.optional} pattern={column.pattern} spellCheck={false} value={draft[column.key] ?? ''}
+                onChange={event => setDraft({ ...draft, [column.key]: event.target.value })} />}
+        </Field>
+      </div>)}
     </Modal>
   </div>
   return <div className="dt-field">

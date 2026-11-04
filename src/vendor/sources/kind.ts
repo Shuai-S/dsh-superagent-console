@@ -19,7 +19,7 @@ export type FieldSpec =
   | FieldBase & { type: 'number'; min: number; max: number }
   | FieldBase & { type: 'text'; pattern?: string; readonly?: boolean; choose?: Localized }
   | FieldBase & { type: 'fact'; settings?: 'deployment' }
-  | FieldBase & { type: 'rows'; columns: ({ key: string; label: Localized; type: 'text'; pattern?: string; optional?: boolean; choose?: Localized; refresh?: Localized } | { key: string; label: Localized; type: 'select'; options: { value: string; label: Localized }[] })[]; dialog?: true }
+  | FieldBase & { type: 'rows'; columns: ({ key: string; label: Localized; hint?: Localized; type: 'text'; pattern?: string; optional?: boolean; choose?: Localized; refresh?: Localized } | { key: string; label: Localized; hint?: Localized; type: 'select'; options: { value: string; label: Localized }[] })[]; dialog?: true; presets?: { label: Localized; values: Record<string, string> }[] }
 
 export interface VariableSpec { key: string; description: Localized }
 export interface EnvironmentInput<C> { deployment: Deployment; config: C; trigger?: Trigger }
