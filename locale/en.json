@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Superagent Console",
+    "description": "Desktop console for the Superagent engine: the official panel embedded over a same-origin proxy. Detects the engine's state, installs it online (source build into a dedicated profile) when missing, and starts/restarts it on demand; the engine stays resident across desktop restarts."
+  }
+}
