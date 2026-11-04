@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { usePoll } from '../vendor/client/api.ts'
-import { Button, Dot, Icon, InfoTip, Input, Modal, Switch, Tag } from '../vendor/client/controls.tsx'
+import { Button, Dot, Icon, InfoTip, Input, Modal, StateDot, Switch, Tag } from '../vendor/client/controls.tsx'
 import { useAction, usePanel } from '../vendor/client/provider.tsx'
 import { ConfirmButton, Section } from '../vendor/client/widgets.tsx'
 import { errorText } from '../vendor/client/text.ts'
@@ -314,6 +314,12 @@ export function PluginsPage(): React.JSX.Element {
   const rows = data?.rows ?? []
   const op = data?.operation
   const opRunning = op?.running === true
+  // 刷新 = 立即拉取一次；转圈反馈让它与 3s 自动轮询可感知地区分开。
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshNow = useCallback(async () => {
+    setRefreshing(true)
+    try { await reload() } finally { setRefreshing(false) }
+  }, [reload])
   const mutate = useAction(async (path: string, body: unknown) => { await post(path, body) }, { reload })
   const restart = useAction(async () => { await post('/superagent-console/api/engine/restart', {}) }, { reload })
   const onToggle = useCallback(async (name: string, enabled: boolean) => {
@@ -332,7 +338,9 @@ export function PluginsPage(): React.JSX.Element {
         <InfoTip text={t('plugins.hint')} />
       </h2>
       <div className="dt-row-actions">
-        <Button variant="outline" size="sm" icon={<Icon name="refresh" size={14} />} onClick={() => { void reload() }}>
+        <Button variant="outline" size="sm" disabled={refreshing}
+          icon={refreshing ? <StateDot state="ongoing" /> : <Icon name="refresh" size={14} />}
+          onClick={() => { void refreshNow() }}>
           {t('plugins.refresh')}
         </Button>
         <Button variant="primary" size="sm" icon={<Icon name="plus" size={14} />} onClick={() => setInstallOpen(true)}>
