@@ -4,9 +4,11 @@
  * Every spawn goes through `execFile` with an argv array (never a shell
  * string), an explicit timeout, and an augmented PATH: the desktop app
  * process may run with a minimal GUI PATH, so the node installation bin
- * directory and the configured `extraPath` entries are prepended.
+ * directory, the configured `extraPath` entries, and the app's bundled
+ * dsh CLI directory are prepended (in that order; user entries win).
  */
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 export interface RunOptions {
@@ -27,10 +29,28 @@ export interface RunResult {
 
 const MAX_BUFFER = 16 * 1024 * 1024
 
-/** PATH prepended for every spawned tool: the running node's bin dir plus the configured extras. */
+/**
+ * Directory of the dsh CLI shipped inside the desktop app bundle: the
+ * Electron binary lives at `<App>.app/Contents/MacOS/<bin>`, so the bundled
+ * CLI resolves to `../Resources/runtime/cli/bin`. Null outside an app
+ * bundle (plain node runs, tests) or when the bundle carries no CLI.
+ * Uncached on purpose: spawns are rare and the probe is one existsSync.
+ */
+export function bundledCliDir(execPath = process.execPath): string | null {
+  const candidate = path.join(path.dirname(execPath), '..', 'Resources', 'runtime', 'cli', 'bin')
+  return existsSync(path.join(candidate, 'dsh')) ? candidate : null
+}
+
+/**
+ * PATH prepended for every spawned tool: the running node's bin dir, the
+ * configured extras, the app's bundled CLI dir (fallback only, so an
+ * explicit user install keeps winning), then the inherited PATH.
+ */
 export function spawnPath(extraPath?: string): string {
   const parts = [path.dirname(process.execPath)]
   if (extraPath) parts.push(...extraPath.split(':').filter(Boolean))
+  const bundled = bundledCliDir()
+  if (bundled) parts.push(bundled)
   const inherited = process.env.PATH ?? ''
   return [...parts, inherited].filter(Boolean).join(':')
 }

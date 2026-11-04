@@ -28,6 +28,7 @@ export type SetupKey =  | 'panel'
   | 'actionFailed'
   | 'engineError'
   | 'installFailed'
+  | 'copyCommand'
 
 export type SetupT = (key: SetupKey) => string
 
@@ -43,7 +44,7 @@ export const setupZh: Record<SetupKey, string> = {
   descStopped: '引擎服务处于停止状态，可以一键拉起（tmux 会话由生命周期脚本托管）。',
   descUnhealthy: '引擎进程存在但管理 API 不可达或组件报错，可尝试重启。',
   descNotInstalled: '引擎运行在独立的 DSH profile 中。点击安装后，控制台会在线拉取官方源码、自动构建并部署到独立 profile（npm 上无此包，源码构建是官方唯一安装路径）。',
-  descPrereq: '在线安装需要以下工具，请先补齐后再安装（凭据类操作仍需本人完成）。',
+  descPrereq: '在线安装需要以下工具，红项按提示命令补齐后点「重试」（凭据类操作仍需本人完成）。',
   install: '在线安装引擎',
   installResume: '继续安装',
   installing: '正在安装…',
@@ -53,6 +54,7 @@ export const setupZh: Record<SetupKey, string> = {
   starting: '正在启动…',
   restarting: '正在重启…',
   prereqsTitle: '前置依赖',
+  copyCommand: '复制',
   stageTitle: '安装进度',
   setupWait: '引擎已启动，正在等待首次配置（Source 设置需在引擎面板完成）。',
   manuallyStopped: '引擎带有手动停止标记，已按需忽略。',
@@ -74,7 +76,7 @@ export const setupEn: Record<SetupKey, string> = {
   descStopped: 'The engine service is stopped. Start it with one click (the tmux session is managed by the lifecycle script).',
   descUnhealthy: 'The engine process exists but the management API is unreachable or a component reports an error. Try a restart.',
   descNotInstalled: 'The engine runs in its own dedicated DSH profile. Installing fetches the official source online, builds it, and deploys it into that profile (the package is not published to npm; source build + link is the only official path).',
-  descPrereq: 'The online installer needs the tools below. Install them first (credential steps stay yours).',
+  descPrereq: 'The online installer needs the tools below — fix failing entries with the suggested command, then Retry (credential steps stay yours).',
   install: 'Install engine online',
   installResume: 'Resume install',
   installing: 'Installing…',
@@ -84,6 +86,7 @@ export const setupEn: Record<SetupKey, string> = {
   starting: 'Starting…',
   restarting: 'Restarting…',
   prereqsTitle: 'Prerequisites',
+  copyCommand: 'Copy',
   stageTitle: 'Install progress',
   setupWait: 'Engine is up and waiting for first-time setup (Source configuration happens in the engine panel).',
   manuallyStopped: 'The engine carries a manual-stop marker; honored on demand.',

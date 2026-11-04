@@ -29,6 +29,8 @@ export interface Prereq {
   name: string
   ok: boolean
   detail: string
+  /** Suggested remediation command for a failed check; absent when none applies. */
+  hint?: string
 }
 
 export interface EngineHealth {
@@ -170,19 +172,27 @@ export async function engineHealth(engineDir: string, profileName: string, targe
   }
 }
 
-/** L3: toolchain probe; never throws, missing tools surface as ok:false entries. */
+/** Locale-neutral remediation commands surfaced next to a failed check (darwin only). */
+function missingHint(name: string): string | undefined {
+  if (process.platform !== 'darwin') return undefined
+  if (name === 'tmux') return 'brew install tmux'
+  if (name === 'pnpm') return 'npm install -g pnpm'
+  return undefined
+}
+
+/** L3: toolchain probe; never throws, missing tools surface as ok:false entries (with a hint where one applies). */
 export async function prereqCheck(env: DetectEnv = {}): Promise<Prereq[]> {
   const checks: Prereq[] = [nodeOk()]
   for (const tool of TOOL_CHECKS) {
     const result = await run(tool.argv, { timeoutMs: 10_000, extraPath: env.extraPath })
     const output = `${result.stdout} ${result.stderr}`.trim()
     if (result.code !== 0 || !output) {
-      checks.push({ name: tool.name, ok: false, detail: result.code === -1 ? 'not found on PATH' : tail(output, 200) })
+      checks.push({ name: tool.name, ok: false, detail: result.code === -1 ? 'not found on PATH' : tail(output, 200), hint: missingHint(tool.name) })
       continue
     }
     const version = output.split(/\s+/).find((token) => /^\d/.test(token)) ?? output
     const ok = tool.min ? atLeast(version, tool.min) : true
-    checks.push({ name: tool.name, ok, detail: ok ? version : `${version} (needs >= ${tool.min})` })
+    checks.push({ name: tool.name, ok, detail: ok ? version : `${version} (needs >= ${tool.min})`, hint: ok ? undefined : missingHint(tool.name) })
   }
   return checks
 }

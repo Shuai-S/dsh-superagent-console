@@ -20,6 +20,7 @@ interface Prereq {
   name: string
   ok: boolean
   detail: string
+  hint?: string
 }
 
 interface Health {
@@ -117,7 +118,12 @@ function Button(props: { label: string; primary?: boolean; disabled?: boolean; o
   )
 }
 
-function PrereqList({ prereqs, title }: { prereqs: Prereq[]; title: string }): React.JSX.Element {
+function PrereqList({ prereqs, title, st }: { prereqs: Prereq[]; title: string; st: SetupT }): React.JSX.Element {
+  const copy = (text: string) => {
+    const clip = navigator.clipboard
+    if (!clip) return
+    void clip.writeText(text).catch(() => undefined)
+  }
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ fontWeight: 600 }}>{title}</div>
@@ -126,6 +132,18 @@ function PrereqList({ prereqs, title }: { prereqs: Prereq[]; title: string }): R
           <li key={item.name} style={{ color: item.ok ? 'inherit' : 'var(--dsh-danger, #d64545)' }}>
             <code style={monoStyle}>{item.name}</code>
             <span style={{ opacity: 0.75 }}> — {item.detail}</span>
+            {!item.ok && item.hint && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
+                <code style={{ ...monoStyle, opacity: 0.85 }}>{item.hint}</code>
+                <button
+                  type="button"
+                  onClick={() => { copy(item.hint ?? '') }}
+                  style={{ ...buttonStyle, padding: '1px 8px', fontSize: 11, borderRadius: 6, color: 'inherit', borderColor: 'var(--dsh-border, rgba(128,128,128,.4))' }}
+                >
+                  {st('copyCommand')}
+                </button>
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -276,7 +294,7 @@ export function Gate({ ctx, t, st }: { ctx: ClientContext; t: T; st: SetupT }): 
       )}
 
       {(status.state === 'not-installed' || status.state === 'prereq-missing' || installing) && (
-        <PrereqList prereqs={status.prereqs} title={st('prereqsTitle')} />
+        <PrereqList prereqs={status.prereqs} title={st('prereqsTitle')} st={st} />
       )}
 
       {(installing || status.setup.current || STAGES.some((id) => status.setup.stages[id]?.status !== 'pending')) && (

@@ -33,9 +33,11 @@ vendor 补丁（seams）：`sync-client.mjs` 在每次 vendor 复制后，对 `c
 | L0 | 服务端 fetch `{target}/orchestrator/api/state`（带 `x-orchestrator-request: 1`） | 引擎可达 |
 | L1 | `~/.dsh/profiles/<profile>/package.json` 依赖含 `dsh-superagent` + checkout 有 `lib/` 产物 | 服务已部署 |
 | L2 | `scripts/dsh-superagent status`（exit 0 健康 / 1 停止 / 2 组件错误 / 3 等待 setup） | 健康细分 |
-| L3 | dsh ≥0.2.1、node ^22.19\|\|≥24、pnpm、git、tmux、python3 | 前置依赖 |
+| L3 | dsh ≥0.2.1、node ^22.19\|\|≥24、pnpm、git、tmux、python3（缺项附补齐提示命令） | 前置依赖 |
 
-状态 → 动作一一映射：`running` → 官方面板；`installed-stopped` → 启动按钮；`installed-unhealthy` → 重启按钮；`not-installed` → 在线安装；`prereq-missing` → 列出缺项（不提供安装按钮）。
+状态 → 动作一一映射：`running` → 官方面板；`installed-stopped` → 启动按钮；`installed-unhealthy` → 重启按钮；`not-installed` → 在线安装；`prereq-missing` → 列出缺项与补齐命令（不提供安装按钮）。
+
+探测 PATH 由 `spawnPath` 组装：运行中 node 的 bin 目录 + 配置的 `extraPath` + **桌面 App 自带的 dsh CLI 目录**（从运行中二进制相对推导 `<App>.app/Contents/Resources/runtime/cli/bin`，存在才追加）。因此桌面用户无需自行安装 dsh；`extraPath` 中显式安装的用户版本优先于内置 CLI。
 
 ## 在线安装流水线（8 段）
 
