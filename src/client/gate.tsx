@@ -117,6 +117,242 @@ function Button(props: { label: string; primary?: boolean; disabled?: boolean; o
   )
 }
 
+// --- Provider sync card -------------------------------------------------
+
+interface ProviderWire {
+  id: string
+  displayName?: string
+  api?: string
+  baseURL?: string
+  apiKeyEnv?: string
+  modelCount: number
+  fields: string[]
+}
+
+interface ProviderSideWire {
+  available: boolean
+  reason?: string
+  patchPath?: string
+  providers?: ProviderWire[]
+}
+
+interface ProviderDiffWire {
+  added: string[]
+  changed: string[]
+  removed: string[]
+  unchanged: string[]
+}
+
+interface SyncReportWire {
+  mode: string
+  changedFile: boolean
+  backupPath?: string
+  added: string[]
+  removed: string[]
+  skipped: Array<{ id: string; reason: string }>
+  warnings: string[]
+  needsRestart: boolean
+}
+
+interface ProvidersPayload {
+  source: ProviderSideWire
+  engine: ProviderSideWire
+  diff: ProviderDiffWire | null
+  sync: {
+    mode: 'merge' | 'mirror'
+    exclude: string[]
+    autoSync: boolean
+    busy: boolean
+    lastReport: SyncReportWire | null
+    lastError: string | null
+  }
+}
+
+function ProviderChip({ id, hint }: { id: string; hint?: string }): React.JSX.Element {
+  return (
+    <span style={{ ...monoStyle, display: 'inline-block', padding: '1px 8px', margin: '2px 4px 2px 0', borderRadius: 6, border: '1px solid var(--dsh-border, rgba(128,128,128,.3))' }}>
+      {id}
+      {hint && <span style={{ opacity: 0.6 }}> · {hint}</span>}
+    </span>
+  )
+}
+
+function DiffGroup({ title, ids, tone }: { title: string; ids: string[]; tone?: string }): React.JSX.Element | null {
+  if (ids.length === 0) return null
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontWeight: 600, color: tone }}>{title} <span style={{ opacity: 0.6 }}>({ids.length})</span></div>
+      <div>{ids.map((id) => <ProviderChip key={id} id={id} />)}</div>
+    </div>
+  )
+}
+
+/**
+ * Collapsible provider-sync card: polls the console providers API, shows the
+ * host/engine diff, and runs the guarded sync into the engine profile patch.
+ * Rendered above the panel or setup card; collapsed by default so it never
+ * crowds the official panel.
+ */
+function ProviderSyncCard({ st }: { st: SetupT }): React.JSX.Element {
+  const [data, setData] = useState<ProvidersPayload | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<'merge' | 'mirror'>('merge')
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<SyncReportWire | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      const payload = await api<ProvidersPayload>('/superagent-console/api/providers')
+      setData(payload)
+      setError(null)
+    } catch (caught) {
+      setError(messageOf(caught))
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+    const timer = setInterval(() => { void refresh() }, 8000)
+    return () => clearInterval(timer)
+  }, [refresh])
+
+  useEffect(() => {
+    if (data && !busy) setMode(data.sync.mode)
+    // Only adopt the configured mode when idle, never mid-run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.sync.mode])
+
+  const diff = data?.diff
+  const diverging = diff ? diff.added.length + diff.changed.length + diff.removed.length : 0
+
+  const runSync = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const payload = await api<{ report: SyncReportWire }>('/superagent-console/api/providers/sync', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      })
+      setReport(payload.report)
+      await refresh()
+    } catch (caught) {
+      setError(messageOf(caught))
+    } finally {
+      setBusy(false)
+    }
+  }, [mode, refresh])
+
+  const restart = useCallback(async () => {
+    setBusy(true)
+    try {
+      await api('/superagent-console/api/engine/restart', { method: 'POST' })
+      await refresh()
+    } catch (caught) {
+      setError(messageOf(caught))
+    } finally {
+      setBusy(false)
+    }
+  }, [refresh])
+
+  const sideLabel = (side: ProviderSideWire | undefined): string => {
+    if (!side) return st('syncUnavailable')
+    if (!side.available) return st('syncUnavailable')
+    const count = side.providers?.length ?? 0
+    return `${count}`
+  }
+
+  const modeButton = (value: 'merge' | 'mirror', label: string): React.JSX.Element => (
+    <button
+      type="button"
+      onClick={() => { setMode(value) }}
+      style={{
+        ...buttonStyle,
+        borderColor: mode === value ? 'var(--dsh-primary, #4c6fff)' : 'var(--dsh-border, rgba(128,128,128,.4))',
+        color: mode === value ? 'var(--dsh-primary, #4c6fff)' : 'inherit',
+        fontWeight: mode === value ? 600 : 400,
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <div style={{ ...cardStyle, margin: '16px auto 0', padding: '14px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => { setOpen(!open) }}>
+        <span style={{ fontWeight: 600 }}>{st('syncTitle')}</span>
+        {data?.sync.autoSync && <span style={{ ...monoStyle, opacity: 0.7, color: 'var(--dsh-ok, #2e9e5b)' }}>{st('syncAutoOn')}</span>}
+        <span style={{ opacity: 0.65 }}>{diverging > 0 ? `${diverging}` : ''}</span>
+        <span style={{ marginLeft: 'auto', opacity: 0.6 }}>{open ? '▾' : '▸'}</span>
+      </div>
+
+      {error && <div style={{ color: 'var(--dsh-danger, #d64545)', marginTop: 8 }}>{error}</div>}
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', opacity: 0.85 }}>
+            <span>{st('syncSource')}: {sideLabel(data?.source)}</span>
+            <span>{st('syncEngine')}: {sideLabel(data?.engine)}</span>
+          </div>
+
+          {!data?.source.available && <div style={{ opacity: 0.7, marginTop: 6 }}>{st('syncSourceMissing')}</div>}
+          {data && !data.engine.available && (
+            <div style={{ opacity: 0.7, marginTop: 6 }}>{st('syncEngineMissing')}{data.engine.reason ?? ''}</div>
+          )}
+
+          {diff && diverging === 0 && <div style={{ opacity: 0.7, marginTop: 8 }}>{st('syncNoDiff')}</div>}
+          {diff && diverging > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontWeight: 600, marginTop: 8 }}>{st('syncDiff')}</div>
+              <DiffGroup title={st('syncAdded')} ids={diff.added} tone="var(--dsh-ok, #2e9e5b)" />
+              <DiffGroup title={st('syncChanged')} ids={diff.changed} tone="var(--dsh-warning, #c98a1b)" />
+              <DiffGroup title={st('syncRemoved')} ids={diff.removed} />
+            </div>
+          )}
+
+          {data?.source.available && data.engine.available && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontWeight: 600 }}>{st('syncModeLabel')}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                {modeButton('merge', st('syncModeMerge'))}
+                {modeButton('mirror', st('syncModeMirror'))}
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button primary disabled={busy || diverging === 0} label={busy ? st('syncDoing') : st('syncDo')} onClick={() => { void runSync() }} />
+                {data.sync.exclude.length > 0 && <span style={{ ...monoStyle, opacity: 0.6 }}>exclude: {data.sync.exclude.join(', ')}</span>}
+              </div>
+            </div>
+          )}
+
+          {report && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--dsh-border, rgba(128,128,128,.25))', paddingTop: 10 }}>
+              <div style={{ fontWeight: 600 }}>{st('syncDone')} <span style={{ opacity: 0.6 }}>({report.mode})</span></div>
+              {report.added.length > 0 && <div style={{ marginTop: 4 }}>{st('syncAdded')}: {report.added.join(', ')}</div>}
+              {report.removed.length > 0 && <div style={{ marginTop: 4 }}>{st('syncRemoved')}: {report.removed.join(', ')}</div>}
+              {report.skipped.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  {st('syncSkipped')}:
+                  {report.skipped.map((item) => (
+                    <div key={item.id} style={{ ...monoStyle, opacity: 0.75, marginLeft: 10 }}>{item.id} — {item.reason}</div>
+                  ))}
+                </div>
+              )}
+              {report.backupPath && <div style={{ ...monoStyle, opacity: 0.6, marginTop: 4 }}>{st('syncBackup')}: {report.backupPath}</div>}
+              {report.needsRestart && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <span style={{ opacity: 0.85 }}>{st('syncRestartHint')}</span>
+                  <Button label={busy ? st('restarting') : st('syncRestartPending')} disabled={busy} onClick={() => { void restart() }} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PrereqList({ prereqs, title }: { prereqs: Prereq[]; title: string }): React.JSX.Element {
   return (
     <div style={{ marginTop: 16 }}>
@@ -238,7 +474,14 @@ export function Gate({ ctx, t, st }: { ctx: ClientContext; t: T; st: SetupT }): 
   const installing = status.installRunning || status.setup.running
   const failed = !installing && STAGES.some((id) => status.setup.stages[id]?.status === 'failed')
 
-  if (status.state === 'running' && !installing) return <OfficialPanel ctx={ctx} t={t} />
+  if (status.state === 'running' && !installing) {
+    return (
+      <div>
+        <ProviderSyncCard st={st} />
+        <OfficialPanel ctx={ctx} t={t} />
+      </div>
+    )
+  }
 
   const headline =
     status.state === 'installed-stopped' ? st('titleStopped')
@@ -254,7 +497,9 @@ export function Gate({ ctx, t, st }: { ctx: ClientContext; t: T; st: SetupT }): 
   const coreMissing = status.prereqs.some((item) => !item.ok)
 
   return (
-    <div style={cardStyle}>
+    <div>
+      <ProviderSyncCard st={st} />
+      <div style={cardStyle}>
       <h2 style={{ margin: 0, fontSize: 18 }}>{headline}</h2>
       <p style={{ opacity: 0.85, margin: '8px 0 0' }}>{description}</p>
 
@@ -304,6 +549,7 @@ export function Gate({ ctx, t, st }: { ctx: ClientContext; t: T; st: SetupT }): 
       {error && <div style={{ color: 'var(--dsh-danger, #d64545)', marginTop: 12 }}>{error}</div>}
 
       <div style={{ ...monoStyle, opacity: 0.6, marginTop: 16 }}>{st('target')}: {status.target}</div>
+      </div>
     </div>
   )
 }

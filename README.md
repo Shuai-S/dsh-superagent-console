@@ -1,6 +1,6 @@
 # dsh-superagent-console
 
-桌面端 Superagent 控制台插件：侧边栏面板 + 同源代理 + **引擎检测与在线安装**。引擎仍运行在独立的 superagent profile（tmux，默认 127.0.0.1:3082），本插件不承载任何引擎状态。
+桌面端 Superagent 控制台插件：侧边栏面板 + 同源代理 + **引擎检测与在线安装** + **模型供应商同步**。引擎仍运行在独立的 superagent profile（tmux，默认 127.0.0.1:3082），本插件不承载任何引擎状态。
 
 ## 架构
 
@@ -8,7 +8,7 @@
 桌面 App（desktop profile）
 └─ dsh-superagent-console
    ├─ 宿主 /orchestrator/api        → 同源代理转发 127.0.0.1:3082（补 x-orchestrator-request 头）
-   ├─ 宿主 /superagent-console/api  → 控制台自有 API（检测 / 安装 / 启动 / 重启 / 插件管理）
+   ├─ 宿主 /superagent-console/api  → 控制台自有 API（检测 / 安装 / 启动 / 重启 / 插件管理 / 供应商同步）
    └─ 客户端                        → 门控面板：引擎在线时挂官方面板（含「插件」管理 Tab），
                                        否则渲染安装引导卡（状态卡）
 
@@ -56,6 +56,20 @@ vendor 补丁（seams）：`sync-client.mjs` 在每次 vendor 复制后，对 `c
 
 复用引擎自带生命周期脚本 `scripts/dsh-superagent start|restart`（tmux 无头托管、拒绝重复启动、尊重 URL 冲突检测），`--profile/--url` 由插件配置注入。
 
+## 模型供应商同步
+
+引擎的模型目录来自其所在 profile 的 `llm-pi-ai` 配置，且引擎管理 API 对供应商**只读**（settings 块仅 policy/eval/executor/pause/source），因此引擎侧唯一写入面是 `~/.dsh/profiles/<profileName>/cordis.patch.yml` 的 `llm-pi-ai` 条目。本插件把安装宿主（desktop/web profile）当前生效的 `llm-pi-ai.providers`（settings 服务 `describe()` 读取，含 dsh-sub2api-sync 写入的路由）同步过去：
+
+- **merge（默认）**：只把引擎缺少的 provider 追加进 `providers:`，已有条目一律不动（尊重手工维护）；
+- **mirror**：引擎 providers 全量替换为本端（减去排除清单），引擎侧多出的删除；
+- **排除清单** `syncExclude`：其中的 provider id 既不复制也不删除；
+- **凭据守卫**：provider 配置携带明文 `apiKey`/`apiToken` 字段时跳过并告警——只同步引用型凭据（`apiKeyEnv` 环境变量名），秘密值永不复制；
+- **文件手术**：只改 `llm-pi-ai` 这一个条目，其余条目（Source 配置、`agent-default-model` 等）与全部注释逐字节保留；写前时间戳备份（保留最近 5 份）、临时文件原子写、写后 YAML 重解析验证（`llm-pi-ai` 条目不完整即拒绝落盘）；
+- **幂等**：输入不变时第二跑零写入；
+- **生效**：写盘后需重启引擎（卡片提示一键重启）；`autoSync` 开启时监听宿主 settings 变化（30s 轮询 diff），`autoRestart` 开启且引擎在运行时同步后自动重启。
+
+API：`GET /superagent-console/api/providers`（两侧摘要 + diff + 同步状态）、`POST /superagent-console/api/providers/sync`（body `{ mode? }`，409 单飞冲突）。settings 服务经 `ctx.inject(['settings'], …)` 可选注入：宿主没有该服务时同步功能不激活，插件其余功能不受影响。
+
 ## 配置项（默认值均为通用约定，不绑定具体机器）
 
 | 键 | 默认 | 说明 |
@@ -65,6 +79,10 @@ vendor 补丁（seams）：`sync-client.mjs` 在每次 vendor 复制后，对 `c
 | `engineDir` | `~/.dsh/state/superagent-console/engine` | 安装器自管目录 |
 | `profileName` | `superagent` | 引擎独立 profile 名（永不指向 desktop） |
 | `extraPath` | `~/.local/bin:/usr/local/bin:/opt/homebrew/bin` | 桌面进程 PATH 偏窄时为子进程补充的工具目录 |
+| `syncMode` | `merge` | 供应商同步模式：`merge` 只补缺，`mirror` 全量镜像 |
+| `syncExclude` | `[]` | 同步不碰的 provider id（既不复制也不删除） |
+| `autoSync` | `false` | 宿主 settings 变化时自动同步引擎 profile（30s 轮询 diff） |
+| `autoRestart` | `false` | 自动同步后且引擎在运行时自动重启引擎 |
 
 ## 构建
 
