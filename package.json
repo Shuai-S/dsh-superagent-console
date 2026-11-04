@@ -1,7 +1,7 @@
 {
   "name": "dsh-superagent-console",
   "description": "Desktop console for the Superagent engine: the official panel embedded over a same-origin proxy. Detects the engine's state, installs it online (source build into a dedicated profile) when missing, and starts/restarts it on demand; the engine stays resident across desktop restarts.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "author": "Shuai-S",
   "type": "module",
@@ -16,7 +16,8 @@
   },
   "files": [
     "lib",
-    "locale/*.json"
+    "locale/*.json",
+    "cordis.patch.yml"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
