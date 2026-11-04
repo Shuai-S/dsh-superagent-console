@@ -152,6 +152,7 @@ const TEXT = {
   sourceNotInstalledHint: ['提供这个来源的插件没有加载，配置按保存时的样子保留。', 'The plugin that provides this Source is not loaded; its configuration is kept as saved.'],
   sourceEnable: ['运行来源：{name}', 'Run Source: {name}'],
   addRow: ['添加', 'Add'],
+  rowSave: ['保存', 'Save'],
   removeRow: ['移除：{name}', 'Remove: {name}'],
   sourceFilteredTitle: ['24 小时内最近被过滤的触发', 'Latest Triggers filtered in the last 24 hours'],
   sourceDroppedTitle: ['24 小时内放弃发送的消息', 'Not sent in the last 24 hours'],

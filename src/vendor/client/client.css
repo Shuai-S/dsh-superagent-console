@@ -380,3 +380,7 @@ a.dt-btn, a.dt-btn:hover { text-decoration: none; }
 .dt-admission-slot { display: inline-flex; flex: none; width: 16px; }
 .dt-info-warn { color: var(--dsw-alias-state-warn-primary); }
 .dt-field-segmented { max-width: 240px; }
+/* Dialog-mode rows field (dsh-superagent-relay/mail style sources) */
+.dt-rows-dialog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.dt-rows-dialog-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; }
+.dt-rows-dialog-item > button:first-child { flex: 1; text-align: left; padding: 2px 4px; }

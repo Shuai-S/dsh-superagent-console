@@ -4,7 +4,7 @@ import { cloneElement, createContext, useContext, useEffect, useId, useLayoutEff
 import type { ApiResponse } from '../app/api.ts'
 import type { FieldSpec, Localized } from '../sources/kind.ts'
 import { usePoll, type HistoryView, type Settings, type SettingsView, type SourceView } from './api.ts'
-import { Button, DisclosureRow, Icon, InfoTip, Input, SegmentedControl, Switch } from './controls.tsx'
+import { Button, DisclosureRow, Icon, InfoTip, Input, Modal, SegmentedControl, Switch } from './controls.tsx'
 import { useDraft } from './draft.tsx'
 import { useAction, usePanel, usePanelData } from './provider.tsx'
 import { settingsRoute } from './route.ts'
@@ -171,6 +171,8 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
 }) {
   const { t, notify } = usePanel()
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState<Row>({})
   const refresh = useAction(async () => {
     try {
       const added = await refreshLabels!()
@@ -213,6 +215,46 @@ function RowsField({ field, value, saved, onChange, labels, refreshLabels }: {
       required={!column.optional} pattern={column.pattern} spellCheck={false} value={row[column.key] ?? ''}
         onChange={event => change(event.target.value)} />
   }
+  if (field.dialog) return <div className="dt-field">
+    <div className="dt-subhead">
+      <span className="dt-field-head">{label}{hint && <InfoTip text={hint} />}<span className="dt-count">{rows.length || ''}</span></span>
+      <span className="dt-subhead-actions">
+        {key.type === 'text' && key.refresh && refreshLabels && <Button variant="ghost" size="sm" className={refresh.busy ? 'dt-btn-busy'
+          : undefined} icon={<Icon name="refresh" />}
+          disabled={refresh.busy} aria-busy={refresh.busy} onClick={() => { void refresh.run() }}>{localized(t, key.refresh)}</Button>}
+        <Button variant="ghost" size="sm" icon={<Icon name="plus" />} onClick={() => { setDraft({ ...blank }); setEditing(rows.length) }}>{t('addRow')}</Button>
+      </span>
+    </div>
+    <ul className="dt-rows-dialog">
+      {rows.map((row, index) => <li key={index} className="dt-rows-dialog-item">
+        <button type="button" className="dt-textlink" onClick={() => { setDraft({ ...row }); setEditing(index) }}>{rowName(row)}</button>
+        <Button variant="ghost" size="sm" icon={<Icon name="trash" />} aria-label={t('removeRow', { name: labels[row[key.key] ?? ''] || rowName(row) })}
+          onClick={() => onChange(rows.filter((_, position) => position !== index))} />
+      </li>)}
+    </ul>
+    <Modal open={editing !== null} onClose={() => setEditing(null)}
+      title={editing !== null && editing < rows.length ? (rowName(rows[editing]) || label) : t('addRow')} closeLabel={t('close')}
+      footer={<>
+        <Button variant="ghost" onClick={() => setEditing(null)}>{t('cancel')}</Button>
+        <Button variant="primary" onClick={() => {
+          if (editing === null) return
+          const row = { ...blank, ...draft }
+          onChange(editing < rows.length ? rows.map((item, position) => position === editing ? row : item) : [...rows, row])
+          setEditing(null)
+        }}>{t('rowSave')}</Button>
+      </>}>
+      {editing !== null && field.columns.map(column => <Field key={column.key} label={localized(t, column.label)}>
+        {column.type === 'select'
+          ? <select className="dt-select" aria-label={localized(t, column.label)} value={draft[column.key] ?? column.options[0]!.value}
+              onChange={event => setDraft({ ...draft, [column.key]: event.target.value })}>
+              {column.options.map(option => <option key={option.value} value={option.value}>{localized(t, option.label)}</option>)}
+            </select>
+          : <Input className={column.optional ? undefined : 'dt-mono'} aria-label={localized(t, column.label)} placeholder={localized(t, column.label)}
+              required={!column.optional} pattern={column.pattern} spellCheck={false} value={draft[column.key] ?? ''}
+              onChange={event => setDraft({ ...draft, [column.key]: event.target.value })} />}
+      </Field>)}
+    </Modal>
+  </div>
   return <div className="dt-field">
     <div className="dt-subhead">
       <span className="dt-field-head">{label}{hint && <InfoTip text={hint} />}<span className="dt-count">{rows.length || ''}</span></span>
