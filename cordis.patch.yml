@@ -1,0 +1,4 @@
+# Mount the console plugin itself (UI proxy only; the engine stays in its own profile).
+- insert:
+    - id: dsh-superagent-console
+      name: 'dsh-superagent-console'
