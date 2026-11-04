@@ -81,4 +81,5 @@ jobs:
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish dist/dsh-superagent-console-*.tgz --registry=https://registry.npmjs.org --access public
+        # ./ 前缀必须保留：dist/*.tgz 无 ./ 会被 npm-package-arg 解析成 GitHub 仓库短格式（owner/repo）
+        run: npm publish ./dist/dsh-superagent-console-*.tgz --registry=https://registry.npmjs.org --access public
