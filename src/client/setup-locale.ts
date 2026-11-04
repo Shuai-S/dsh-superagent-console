@@ -28,29 +28,6 @@ export type SetupKey =  | 'panel'
   | 'actionFailed'
   | 'engineError'
   | 'installFailed'
-  | 'syncTitle'
-  | 'syncDiff'
-  | 'syncNoDiff'
-  | 'syncSource'
-  | 'syncEngine'
-  | 'syncSourceMissing'
-  | 'syncEngineMissing'
-  | 'syncAdded'
-  | 'syncChanged'
-  | 'syncRemoved'
-  | 'syncModeLabel'
-  | 'syncModeMerge'
-  | 'syncModeMirror'
-  | 'syncDo'
-  | 'syncDoing'
-  | 'syncDone'
-  | 'syncBackup'
-  | 'syncSkipped'
-  | 'syncRestartHint'
-  | 'syncRestartPending'
-  | 'syncAutoOn'
-  | 'syncFailed'
-  | 'syncUnavailable'
 
 export type SetupT = (key: SetupKey) => string
 
@@ -83,29 +60,6 @@ export const setupZh: Record<SetupKey, string> = {
   actionFailed: '操作失败',
   engineError: '引擎组件错误',
   installFailed: '安装失败',
-  syncTitle: '模型供应商同步',
-  syncDiff: '与引擎 profile 的差异',
-  syncNoDiff: '引擎 profile 与本端供应商一致，无需同步。',
-  syncSource: '本端（settings 生效值）',
-  syncEngine: '引擎 profile',
-  syncSourceMissing: '本端供应商不可读：settings 服务未注入或无 llm-pi-ai 条目。',
-  syncEngineMissing: '引擎 profile 不可读：',
-  syncAdded: '引擎缺少（将补齐）',
-  syncChanged: '两侧都有但配置不同',
-  syncRemoved: '仅引擎有',
-  syncModeLabel: '同步模式',
-  syncModeMerge: '增补（只加缺的，已有不动）',
-  syncModeMirror: '镜像（引擎供应商全量替换为本端）',
-  syncDo: '同步到引擎 profile',
-  syncDoing: '同步中…',
-  syncDone: '已写入引擎 profile',
-  syncBackup: '备份',
-  syncSkipped: '已跳过',
-  syncRestartHint: '需要重启引擎生效。',
-  syncRestartPending: '重启引擎以加载新供应商',
-  syncAutoOn: '自动同步已开启',
-  syncFailed: '同步失败',
-  syncUnavailable: '（不可用）',
 }
 
 export const setupEn: Record<SetupKey, string> = {
@@ -137,29 +91,6 @@ export const setupEn: Record<SetupKey, string> = {
   actionFailed: 'Action failed',
   engineError: 'Engine component errors',
   installFailed: 'Install failed',
-  syncTitle: 'Model provider sync',
-  syncDiff: 'Differences against the engine profile',
-  syncNoDiff: 'The engine profile matches this host\'s providers — nothing to sync.',
-  syncSource: 'This host (live settings)',
-  syncEngine: 'Engine profile',
-  syncSourceMissing: 'Host providers unreadable: settings service not injected or no llm-pi-ai entry.',
-  syncEngineMissing: 'Engine profile unreadable: ',
-  syncAdded: 'Missing on engine (will append)',
-  syncChanged: 'Present on both, configured differently',
-  syncRemoved: 'Engine only',
-  syncModeLabel: 'Sync mode',
-  syncModeMerge: 'Merge (append missing only, keep the rest)',
-  syncModeMirror: 'Mirror (replace engine providers with this host\'s)',
-  syncDo: 'Sync into engine profile',
-  syncDoing: 'Syncing…',
-  syncDone: 'Written into the engine profile',
-  syncBackup: 'Backup',
-  syncSkipped: 'Skipped',
-  syncRestartHint: 'Restart the engine for the change to take effect.',
-  syncRestartPending: 'Restart engine to load the new providers',
-  syncAutoOn: 'Auto sync enabled',
-  syncFailed: 'Sync failed',
-  syncUnavailable: ' (unavailable)',
 }
 
 // Register the setup namespace in the typed locale registry, the same way the

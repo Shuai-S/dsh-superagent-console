@@ -172,6 +172,18 @@ function validateSpec(raw: unknown): string {
   return spec
 }
 
+/** Validate an optional npm registry override: `dsh plugin` forwards unknown
+ * flags to pnpm, so the registry rides along as `--registry=<url>`; only a
+ * well-formed http(s) URL may take that ride. */
+function validateRegistry(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') return null
+  const registry = typeof raw === 'string' ? raw.trim() : ''
+  if (!/^https?:\/\/\S+$/.test(registry) || registry.length > 256) {
+    throw new PluginRequestError('invalid registry: an http(s) URL is required')
+  }
+  return registry
+}
+
 /** Validate a remove/enable target: an existing profile dependency, not the engine core. */
 function validateName(config: ResolvedConsoleConfig, raw: unknown, allowProtected = false): string {
   const name = typeof raw === 'string' ? raw.trim() : ''
@@ -188,10 +200,11 @@ function validateName(config: ResolvedConsoleConfig, raw: unknown, allowProtecte
   return name
 }
 
-async function runCliOperation(config: ResolvedConsoleConfig, env: PluginEnv, kind: PluginOperationKind, target: string): Promise<PluginOperation> {
+async function runCliOperation(config: ResolvedConsoleConfig, env: PluginEnv, kind: PluginOperationKind, target: string, registryUrl?: string | null): Promise<PluginOperation> {
   const startedAt = new Date().toISOString()
   const argv = ['dsh', 'plugin', '--profile', config.profileName, kind === 'install' ? 'add' : 'remove', target]
-  audit(config, { ts: startedAt, event: 'plugin-' + kind + '-begin', profile: config.profileName, target: redact(target) })
+  if (registryUrl) argv.push('--registry=' + registryUrl)
+  audit(config, { ts: startedAt, event: 'plugin-' + kind + '-begin', profile: config.profileName, target: redact(target), ...(registryUrl ? { registry: registryUrl } : {}) })
   const result = await run(argv, { timeoutMs: kind === 'install' ? 900_000 : 600_000, extraPath: env.extraPath })
   const output = tail(redact((result.stdout + '\n' + result.stderr).trim()), 4000)
   const failed = result.code !== 0
@@ -221,14 +234,15 @@ async function runCliOperation(config: ResolvedConsoleConfig, env: PluginEnv, ki
  * Rejects immediately (PluginRequestError) when an operation is already
  * running, and surfaces command failures as the resolved state's error.
  */
-export function runPluginOperation(config: ResolvedConsoleConfig, env: PluginEnv, kind: PluginOperationKind, target: string): Promise<PluginOperation> {
+export function runPluginOperation(config: ResolvedConsoleConfig, env: PluginEnv, kind: PluginOperationKind, target: string, registry?: unknown): Promise<PluginOperation> {
   if (config.profileName === 'desktop') {
     return Promise.reject(new PluginRequestError('refusing to manage plugins of the desktop profile'))
   }
   if (inFlight) return Promise.reject(new PluginRequestError('another plugin operation is already running'))
   const prepared = kind === 'install' ? validateSpec(target) : validateName(config, target)
+  const registryUrl = kind === 'install' ? validateRegistry(registry) : null
   last = { running: true, kind, target: prepared, startedAt: new Date().toISOString(), finishedAt: null, exitCode: null, timedOut: false, output: '', error: null }
-  inFlight = runCliOperation(config, env, kind, prepared).finally(() => {
+  inFlight = runCliOperation(config, env, kind, prepared, registryUrl).finally(() => {
     inFlight = null
   })
   return inFlight

@@ -75,7 +75,54 @@ export interface SyncReport {
   warnings: string[]
   /** Providers present on the engine side only after the sync (mirror keeps excluded ones). */
   engineProviders: string[]
+  /** Whether the running engine confirmed the write in its catalog. */
+  hotReload: HotReload
+  /** True only when an engine is up but did not reflect the change in time. */
   needsRestart: boolean
+}
+
+/**
+ * Outcome of waiting for the running engine to pick up the written providers.
+ * `verified` — the engine's model catalog already reflects the change (the
+ * engine watches its profile patch and hot-reloads llm-pi-ai); `offline` — no
+ * engine is listening, so the change simply applies at next start; `timeout`
+ * — an engine is up but did not reflect the change in time, restart is the
+ * fallback.
+ */
+export type HotReload = 'verified' | 'offline' | 'timeout'
+
+/** How the running engine's catalog view is probed after a write. */
+async function engineCatalogProviders(target: string, timeoutMs = 2500): Promise<string[] | 'offline'> {
+  try {
+    const response = await fetch(target.replace(/\/$/, '') + '/orchestrator/api/models', {
+      headers: { 'x-orchestrator-request': '1' },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!response.ok) return 'offline'
+    const payload = (await response.json()) as { groups?: Array<{ id?: string }> }
+    return (payload.groups ?? []).map(group => group.id ?? '').filter(Boolean)
+  } catch {
+    return 'offline'
+  }
+}
+
+/**
+ * Wait until the engine's catalog contains every expected provider id (it
+ * hot-reloads the profile patch), or run out of patience. Extra groups in the
+ * catalog (account-backed providers) are fine — only coverage matters.
+ */
+async function awaitHotReload(target: string, expected: string[], budgetMs = 20_000, stepMs = 2_000): Promise<HotReload> {
+  const deadline = Date.now() + budgetMs
+  let offlineSeen = true
+  while (Date.now() < deadline) {
+    const providers = await engineCatalogProviders(target)
+    if (providers !== 'offline') {
+      offlineSeen = false
+      if (expected.every(id => providers.includes(id))) return 'verified'
+    }
+    await new Promise(resolve => setTimeout(resolve, stepMs))
+  }
+  return offlineSeen ? 'offline' : 'timeout'
 }
 
 /** Field names that mean a plaintext secret when found on a provider value. */
@@ -358,11 +405,11 @@ function stampOf(now = new Date()): string {
  * Throws with a readable message when either side is unavailable; the file
  * is only touched when the plan actually changes bytes.
  */
-export function applyProviderSync(
+export async function applyProviderSync(
   config: ResolvedConsoleConfig,
   settings: SettingsFace | null,
   options: { mode?: SyncMode; exclude?: string[] } = {},
-): SyncReport {
+): Promise<SyncReport> {
   const mode = options.mode ?? 'merge'
   const exclude = new Set(options.exclude ?? [])
   const host = readHostProviders(settings)
@@ -412,7 +459,8 @@ export function applyProviderSync(
   if (nextText === original) {
     return {
       mode, changedFile: false, added: [], changed: before.changed, removed: [],
-      skipped, warnings, engineProviders: Object.keys(engine.providers ?? {}), needsRestart: false,
+      skipped, warnings, engineProviders: Object.keys(engine.providers ?? {}),
+      hotReload: 'verified', needsRestart: false,
     }
   }
 
@@ -431,16 +479,22 @@ export function applyProviderSync(
   pruneBackups(patchPath, 5)
 
   const after = readEngineProviders(patchPath)
+  const engineProviders = after.providers ? Object.keys(after.providers) : []
+  // The running engine watches its profile patch and hot-reloads llm-pi-ai;
+  // wait for the catalog to reflect the write instead of demanding a restart.
+  // An offline engine needs nothing — the change applies at next start.
+  const hotReload = await awaitHotReload(config.target, engineProviders)
   return {
     mode,
     changedFile: true,
     backupPath,
     added,
-    changed: mode === 'mirror' ? before.changed : before.changed,
+    changed: before.changed,
     removed,
     skipped,
     warnings,
-    engineProviders: after.providers ? Object.keys(after.providers) : [],
-    needsRestart: true,
+    engineProviders,
+    hotReload,
+    needsRestart: hotReload === 'timeout',
   }
 }

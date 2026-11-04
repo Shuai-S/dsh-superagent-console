@@ -120,7 +120,7 @@ export async function runProviderSync(
   if (syncing) throw new Error('a provider sync is already running')
   syncing = true
   try {
-    const report = applyProviderSync(config, settings, { mode, exclude: config.syncExclude })
+    const report = await applyProviderSync(config, settings, { mode, exclude: config.syncExclude })
     lastSyncReport = report
     lastSyncError = null
     return report
@@ -256,12 +256,12 @@ export function consoleApiHandler(options: ConsoleApiOptions): (req: IncomingMes
           return
         }
         case 'POST /superagent-console/api/plugins/install': {
-          const body = await readJson<{ spec?: unknown }>(req)
+          const body = await readJson<{ spec?: unknown; registry?: unknown }>(req)
           if (pluginBusy()) {
             sendJson(res, 409, { error: 'another plugin operation is already running' })
             return
           }
-          void runPluginOperation(config, env, 'install', String(body.spec ?? '')).catch(() => undefined)
+          void runPluginOperation(config, env, 'install', String(body.spec ?? ''), body.registry).catch(() => undefined)
           sendJson(res, 202, { started: true })
           return
         }

@@ -98,7 +98,7 @@ function startAutoSync(ctx: Context, resolved: ResolvedConsoleConfig, env: Insta
         'dsh-superagent-console: auto provider sync (%s) added %j removed %j, backup %s',
         report.mode, report.added, report.removed, report.backupPath,
       )
-      if (resolved.autoRestart && report.needsRestart && (await probeEngine(resolved.target))) {
+      if (resolved.autoRestart && report.hotReload === 'timeout' && (await probeEngine(resolved.target))) {
         const result = await engineAction(resolved, 'restart', env)
         ctx.logger?.info?.('dsh-superagent-console: auto restart after provider sync, exit %s', result.exit)
       }

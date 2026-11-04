@@ -115,6 +115,8 @@ function InstallModal({ open, onClose, onSettled }: {
   const [guideOpen, setGuideOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [lastOp, setLastOp] = useState<PluginOperation | null>(null)
+  const [registry, setRegistry] = useState('')
+  const [customRegistry, setCustomRegistry] = useState('')
   const settled = useRef(onSettled)
   settled.current = onSettled
 
@@ -141,11 +143,24 @@ function InstallModal({ open, onClose, onSettled }: {
   }, [step.kind])
 
   const run = async () => {
+    // Registry mirrors the native dialog: default defers to pnpm's own
+    // configuration; the two well-known sources and a custom http(s) URL ride
+    // through dsh plugin as a pnpm --registry flag.
+    let chosen: string | null = null
+    if (registry === 'official') chosen = 'https://registry.npmjs.org/'
+    else if (registry === 'npmmirror') chosen = 'https://registry.npmmirror.com/'
+    else if (registry === 'custom') {
+      chosen = customRegistry.trim()
+      if (!/^https?:\/\/\S+$/.test(chosen)) {
+        notify(t('plugins.registryCustomInvalid'))
+        return
+      }
+    }
     setDetailsOpen(false)
     setLastOp(null)
     setStep({ kind: 'running' })
     try {
-      await post('/superagent-console/api/plugins/install', { spec: spec.trim() })
+      await post('/superagent-console/api/plugins/install', { spec: spec.trim(), registry: chosen })
     } catch (failure) {
       notify(errorText(failure))
       setStep({ kind: 'editing' })
@@ -160,13 +175,12 @@ function InstallModal({ open, onClose, onSettled }: {
   return <Modal
     open={open}
     onClose={onClose}
+    className="dt-plugins-modal"
     title={step.kind === 'running' ? t('plugins.installingTitle')
       : step.kind === 'failed' ? t('plugins.installFailedTitle') : t('plugins.installTitle')}
     closeLabel={t('plugins.installClose')}
     description={step.kind === 'editing' ? t('plugins.installDescription') : undefined}
-    footer={<>
-      {step.kind === 'editing' && <Button variant="ghost" onClick={onClose}>{t('plugins.installClose')}</Button>}
-      {step.kind === 'editing' && <Button variant="primary" disabled={!spec.trim()} onClick={() => { void run() }}>{t('plugins.installRun')}</Button>}
+    footer={step.kind === 'editing' ? undefined : <>
       {step.kind === 'running' && <Button variant="ghost" onClick={onClose}>{t('plugins.installClose')}</Button>}
       {step.kind === 'failed' && <Button variant="ghost" onClick={onClose}>{t('plugins.installClose')}</Button>}
       {step.kind === 'failed' && <Button variant="primary" onClick={() => { void run() }}>{t('plugins.installRetry')}</Button>}
@@ -174,18 +188,34 @@ function InstallModal({ open, onClose, onSettled }: {
     </>}
   >
     {step.kind === 'editing' && <form onSubmit={submit}>
-      <label className="dt-field">
-        <span className="dt-row-label">{t('plugins.installSpecLabel')}</span>
-        <Input type="text" value={spec} placeholder={t('plugins.installSpecPlaceholder')} aria-label={t('plugins.installSpecLabel')}
-          onChange={event => { setSpec(event.target.value) }} />
-      </label>
-      <div className="dt-row-buttons">
+      <Input type="text" value={spec} placeholder={t('plugins.installSpecPlaceholder')} aria-label={t('plugins.installSpecLabel')}
+        style={{ width: '100%' }} onChange={event => { setSpec(event.target.value) }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12 }}>
         <button type="button" className="dt-textlink" aria-expanded={guideOpen}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
           onClick={() => setGuideOpen(!guideOpen)}>
+          <Icon name={guideOpen ? 'chevron-up' : 'chevron-down'} size={14} />
           {guideOpen ? t('plugins.installGuideHide') : t('plugins.installGuideToggle')}
         </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '0.5px solid var(--dsw-alias-border-l4)', borderRadius: 8, padding: '0 10px', height: 34 }}>
+          <span style={{ fontSize: 13, opacity: 0.7, whiteSpace: 'nowrap' }}>{t('plugins.registryTitle')}</span>
+          <select className="dt-select" style={{ border: 'none', background: 'transparent', width: 'auto', height: 'auto', padding: 0 }}
+            aria-label={t('plugins.registryTitle')} value={registry}
+            onChange={event => setRegistry(event.target.value)}>
+            <option value="">{t('plugins.registryDefault')}</option>
+            <option value="official">{t('plugins.registryOfficial')}</option>
+            <option value="npmmirror">{t('plugins.registryNpmmirror')}</option>
+            <option value="custom">{t('plugins.registryCustom')}</option>
+          </select>
+        </span>
       </div>
-      {guideOpen && <div className="dt-disclosure-body">
+      {registry === 'custom' && <div style={{ marginTop: 10 }}>
+        <Input type="text" value={customRegistry} placeholder={t('plugins.registryCustomPlaceholder')}
+          aria-label={t('plugins.registryCustom')} style={{ width: '100%' }}
+          onChange={event => { setCustomRegistry(event.target.value) }} />
+        <p className="dt-hint">{t('plugins.registryCustomHint')}</p>
+      </div>}
+      {guideOpen && <div className="dt-disclosure-body" style={{ marginTop: 12 }}>
         {GUIDE_EXAMPLES.map(({ key, example }) => <div key={key} className="dt-row">
           <Dot state="idle" />
           <div className="dt-row-main">
@@ -197,8 +227,15 @@ function InstallModal({ open, onClose, onSettled }: {
             </div>
           </div>
         </div>)}
-        <div className="dt-banner">{t('plugins.installGuideSafety')}</div>
       </div>}
+      <div className="dt-banner" style={{ marginTop: 12 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 6 }}>
+          <Icon name="alert" size={14} />
+          <span>{t('plugins.installGuideSafety')}</span>
+        </span>
+      </div>
+      <Button variant="primary" style={{ width: '100%', marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        disabled={!spec.trim()} onClick={() => { void run() }}>{t('plugins.installRun')}</Button>
     </form>}
     {step.kind === 'running' && <div>
       <div className="dt-row">
@@ -231,7 +268,6 @@ function InstallModal({ open, onClose, onSettled }: {
     </div>}
   </Modal>
 }
-
 // -- page --------------------------------------------------------------------
 
 function PluginItem({ row, busy, onUninstall, onToggle }: {
@@ -290,6 +326,7 @@ export function PluginsPage(): React.JSX.Element {
   }, [mutate])
 
   return <div className="dt-form">
+    <style>{'.dt-plugins-modal.dt-modal { width: min(680px, 100%); }'}</style>
     <div className="dt-status-head">
       <h2 className="dt-status-title">{t('tab.plugins')}
         <InfoTip text={t('plugins.hint')} />

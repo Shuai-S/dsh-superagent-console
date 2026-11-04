@@ -335,9 +335,38 @@ export interface EngineActionResult {
   output: string
 }
 
+/**
+ * Locate the engine lifecycle script. Online installs own
+ * `engineDir/scripts/dsh-superagent`; a manually installed engine lives in the
+ * checkout the profile links (`dependencies['dsh-superagent'] = "link:<path>"`),
+ * so resolve that too before giving up.
+ */
+export function resolveLifecycleScript(config: ResolvedConsoleConfig): { script: string | null; tried: string[] } {
+  const tried: string[] = []
+  const owned = path.join(config.engineDir, 'scripts', 'dsh-superagent')
+  tried.push(owned)
+  if (existsSync(owned)) return { script: owned, tried }
+  try {
+    const manifest = JSON.parse(readFileSync(path.join(profileDir(config.profileName), 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    const dep = manifest.dependencies?.['dsh-superagent']
+    const link = typeof dep === 'string' && dep.startsWith('link:') ? dep.slice('link:'.length) : undefined
+    if (link) {
+      const linked = path.join(link, 'scripts', 'dsh-superagent')
+      tried.push(linked)
+      if (existsSync(linked)) return { script: linked, tried }
+    }
+  } catch { /* unreadable profile manifest — fall through */ }
+  return { script: null, tried }
+}
+
 /** Run the lifecycle script's start/restart action and wait for its verdict. */
 export async function engineAction(config: ResolvedConsoleConfig, action: 'start' | 'restart', env: InstallEnv = {}): Promise<EngineActionResult> {
-  const script = path.join(config.engineDir, 'scripts', 'dsh-superagent')
+  const { script, tried } = resolveLifecycleScript(config)
+  if (!script) {
+    return { ok: false, exit: 127, output: 'lifecycle script not found; looked at:\n  ' + tried.join('\n  ') }
+  }
   const result = await run(['python3', script, action, '--profile', config.profileName, '--url', config.target, '--timeout', '90'], {
     timeoutMs: 420_000,
     extraPath: env.extraPath,

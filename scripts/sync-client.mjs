@@ -165,6 +165,14 @@ const PLUGINS_LOCALE_KEYS = [
   "  'plugins.installDescription': ['输入插件的包名、Git 仓库地址或本地目录路径。', \"Enter the plugin's package name, Git repository, or local directory path.\"],",
   "  'plugins.installSpecLabel': ['包名或地址', 'Package or address'],",
   "  'plugins.installSpecPlaceholder': ['例如 dsh-plugin-whale-pet', 'e.g. dsh-plugin-whale-pet'],",
+  "  'plugins.registryTitle': ['安装源', 'Registry'],",
+  "  'plugins.registryDefault': ['默认安装源', 'Default registry'],",
+  "  'plugins.registryOfficial': ['npm 官方源', 'npm official registry'],",
+  "  'plugins.registryNpmmirror': ['中国大陆镜像源', 'China mirror registry'],",
+  "  'plugins.registryCustom': ['自定义地址', 'Custom URL'],",
+  "  'plugins.registryCustomPlaceholder': ['https://npm.example.com/', 'https://npm.example.com/'],",
+  "  'plugins.registryCustomHint': ['自定义源需要登录时，把凭据放在本机的 ~/.npmrc 里。', 'For a registry that requires login, keep its credentials in the local ~/.npmrc.'],",
+  "  'plugins.registryCustomInvalid': ['请输入以 http:// 或 https:// 开头的地址', 'Enter an address starting with http:// or https://'],",
   "  'plugins.installGuideToggle': ['插件安装引导和示例', 'Install guide and examples'],",
   "  'plugins.installGuideHide': ['收起引导', 'Hide guide'],",
   "  'plugins.installGuideNpm': ['npm 包名：插件包名即 npm 包名（如 dsh-xxx 或 @作者/插件名）。', 'npm package: the plugin name is its npm name (dsh-xxx or @author/plugin).'],",
@@ -204,6 +212,63 @@ patchFile('client/locales.ts', [
    "  'tab.execution': ['执行', 'Execution'],\n  'tab.plugins': ['插件', 'Plugins'],"],
   ["  'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],",
    "  'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],\n  // Plugins tab (dsh-superagent-console seam; see scripts/sync-client.mjs)\n" + PLUGINS_LOCALE_KEYS.join('\n')],
+])
+
+/**
+ * Seam patches for the Settings → Models group (src/client/models-page.tsx):
+ * the settings sub-menu list, the SettingsPage group switch, and the
+ * settingsGroup/providerSync dictionaries. Same anchor discipline as above.
+ */
+patchFile('client/route.ts', [
+  // The Models group joins the settings sub-menu, after Deployment.
+  ["export const SETTINGS_GROUPS = ['source', 'eval', 'execution', 'prompts', 'deployment'] as const",
+   "export const SETTINGS_GROUPS = ['source', 'eval', 'execution', 'prompts', 'deployment', 'models'] as const"],
+])
+
+patchFile('client/settings.tsx', [
+  // Our group page, imported across the vendor boundary.
+  ["import { SourceSettings } from './source.tsx'",
+   "import { ModelsPage } from '../../client/models-page.tsx'\nimport { SourceSettings } from './source.tsx'"],
+  ["      case 'deployment': return <DeploymentPage setup={state.setup} form={deploymentForm} />",
+   "      case 'deployment': return <DeploymentPage setup={state.setup} form={deploymentForm} />\n      case 'models': return <ModelsPage />"],
+])
+
+const MODELS_LOCALE_KEYS = [
+  "  'providerSync.title': ['供应商同步', 'Provider sync'],",
+  "  'providerSync.hint': ['把本端（安装该插件的端）当前生效的模型供应商同步到引擎 profile；写入走备份 + 原子写，明文密钥不复制。', \"Carry this host's live model providers into the engine profile; writes are backed up, atomic, and never copy plaintext secrets.\"],",
+  "  'providerSync.source': ['本端（settings 生效值）', 'This host (live settings)'],",
+  "  'providerSync.engine': ['引擎 profile', 'Engine profile'],",
+  "  'providerSync.unavailable': ['不可用', 'unavailable'],",
+  "  'providerSync.sourceMissing': ['本端供应商不可读：settings 服务未注入或无 llm-pi-ai 条目。', 'Host providers unreadable: settings service not injected or no llm-pi-ai entry.'],",
+  "  'providerSync.engineMissing': ['引擎 profile 不可读：{reason}', 'Engine profile unreadable: {reason}'],",
+  "  'providerSync.diffTitle': ['与引擎 profile 的差异', 'Differences against the engine profile'],",
+  "  'providerSync.added': ['引擎缺少（将补齐）', 'Missing on engine (will append)'],",
+  "  'providerSync.changed': ['两侧都有但配置不同', 'Present on both, configured differently'],",
+  "  'providerSync.removed': ['仅引擎有', 'Engine only'],",
+  "  'providerSync.noDiff': ['引擎 profile 与本端供应商一致，无需同步。', \"The engine profile matches this host's providers — nothing to sync.\"],",
+  "  'providerSync.mode': ['同步模式', 'Sync mode'],",
+  "  'providerSync.mode.merge': ['增补', 'Merge'],",
+  "  'providerSync.mode.mirror': ['镜像', 'Mirror'],",
+  "  'providerSync.modeHint': ['增补只把引擎缺少的供应商追加进 profile，已有条目不动；镜像用本端全量替换引擎供应商（排除清单除外），需要重启引擎生效。', \"Merge appends only the providers the engine lacks; mirror replaces the engine providers with this host's set (minus the exclusion list). An engine restart applies the change.\"],",
+  "  'providerSync.exclude': ['排除清单：{ids}', 'Excluded: {ids}'],",
+  "  'providerSync.do': ['同步到引擎 profile', 'Sync into engine profile'],",
+  "  'providerSync.doing': ['同步中…', 'Syncing…'],",
+  "  'providerSync.done': ['已写入引擎 profile（{mode}）', 'Written into the engine profile ({mode})'],",
+  "  'providerSync.backup': ['备份：{path}', 'Backup: {path}'],",
+  "  'providerSync.skipped': ['已跳过：{id} — {reason}', 'Skipped: {id} — {reason}'],",
+  "  'providerSync.hotVerified': ['引擎已热加载新供应商，无需重启。', 'The engine hot-reloaded the new providers — no restart needed.'],",
+  "  'providerSync.hotOffline': ['引擎未在运行，变更将在下次启动时生效。', 'The engine is not running; the change applies at next start.'],",
+  "  'providerSync.hotTimeout': ['引擎未在时限内反映变更，可重启引擎兜底。', 'The engine did not reflect the change in time; restart it as a fallback.'],",
+  "  'providerSync.restart': ['重启引擎', 'Restart engine'],",
+  "  'providerSync.restarting': ['正在重启…', 'Restarting…'],",
+  "  'providerSync.autoOn': ['自动同步已开启（监听宿主 settings 变化）', 'Auto sync enabled (watching host settings)'],",
+]
+
+patchFile('client/locales.ts', [
+  ["  'settingsGroup.deployment': ['部署', 'Deployment'],",
+   "  'settingsGroup.deployment': ['部署', 'Deployment'],\n  'settingsGroup.models': ['模型', 'Models'],"],
+  ["  // Plugins tab (dsh-superagent-console seam; see scripts/sync-client.mjs)",
+   "  // Provider sync (dsh-superagent-console seam; see scripts/sync-client.mjs)\n" + MODELS_LOCALE_KEYS.join('\n') + "\n  // Plugins tab (dsh-superagent-console seam; see scripts/sync-client.mjs)"],
 ])
 
 /**
