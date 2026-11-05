@@ -35,6 +35,7 @@ export const name: string = 'dsh-superagent-console'
 export { Config, type ResolvedConsoleConfig, type SyncMode } from './config.ts'
 export { detect, type ConsoleState, type DetectResult, type Prereq } from './detect.ts'
 export { engineAction, readSetupState, runInstall, type SetupState, type StageId } from './installer.ts'
+export { danglingLinks } from './plugins.ts'
 export {
   applyProviderSync,
   diffProviders,

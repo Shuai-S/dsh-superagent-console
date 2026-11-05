@@ -1,7 +1,7 @@
 {
   "name": "dsh-superagent-console",
-  "description": "Desktop console for the Superagent engine: the official panel embedded over a same-origin proxy. Detects the engine's state, installs it online (source build into a dedicated profile) when missing, and starts/restarts it on demand; the engine stays resident across desktop restarts.",
-  "version": "0.1.2",
+  "description": "Desktop console for the dsh-superagent engine: same-origin proxied panel with engine detection, guided online install, plugin management, and model-provider sync.",
+  "version": "0.1.3",
   "license": "MIT",
   "author": "Shuai-S",
   "type": "module",
@@ -12,7 +12,9 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./client": "./lib/client.js"
+    "./client": "./lib/client.js",
+    "./locale/*": "./locale/*",
+    "./package.json": "./package.json"
   },
   "files": [
     "lib",
@@ -71,6 +73,7 @@
     "@deepseek-ai/dsh-client-locale": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.5",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-settings": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-alpha.2",

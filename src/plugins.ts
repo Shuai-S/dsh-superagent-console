@@ -18,16 +18,21 @@
  *     own host profile);
  *   - install specs must be non-empty, option-free single tokens; remove
  *     names must already be profile dependencies;
+ *   - before any install/remove, `link:` dependencies are realpath-checked;
+ *     a dangling target (checkout moved, manifest rewritten without
+ *     reinstalling) makes the official CLI's post-install bundle
+ *     reconciliation exit 1 with an opaque resolve error, so the operation
+ *     refuses up front and names the repair;
  *   - the engine core package (`dsh-superagent`) can be neither removed
  *     nor toggled — without it the console has no subject;
  *   - operations are single-flight in-process: install, remove, and
  *     selection edits share one mutex so they cannot interleave.
  */
 import path from 'node:path'
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { ResolvedConsoleConfig } from './config.ts'
 import { consoleStateDir, profileDir } from './detect.ts'
-import { run, tail } from './exec.ts'
+import { runStreaming, tail } from './exec.ts'
 
 /** A request the caller (not the environment) got wrong — reported as HTTP 400. */
 export class PluginRequestError extends Error {
@@ -61,6 +66,14 @@ export interface PluginsState {
 
 export type PluginOperationKind = 'install' | 'remove'
 
+export interface InstalledPluginInfo {
+  name: string
+  spec: string
+  version: string | null
+  /** The package declares a dsh.bundle, so 立即启用 can mount it. */
+  bundle: boolean
+}
+
 export interface PluginOperation {
   running: boolean
   kind: PluginOperationKind | null
@@ -70,9 +83,13 @@ export interface PluginOperation {
   finishedAt: string | null
   exitCode: number | null
   timedOut: boolean
-  /** Redacted combined command output tail. */
+  /** Redacted combined command output tail; grows while the operation runs. */
   output: string
   error: string | null
+  /** Packages the add introduced (dependency diff), when derivable. */
+  installed?: InstalledPluginInfo[]
+  /** The engine profile directory — the native done screen's install location. */
+  profileDir?: string
 }
 
 interface ProfileManifest {
@@ -184,6 +201,78 @@ function validateRegistry(raw: unknown): string | null {
   return registry
 }
 
+/**
+ * Collect `link:` dependencies whose target no longer exists. The official
+ * CLI sails through the package operation itself (pnpm trusts the lockfile's
+ * recorded link resolution without checking the target) but its post-install
+ * bundle reconciliation probes `node_modules/<name>/package.json` and exits 1
+ * with an opaque "cannot resolve profile bundle" error — the shape seen after
+ * a hosting checkout is moved and only the manifest specifiers are rewritten.
+ * Refusing up front keeps the failure readable and names the repair.
+ */
+export function danglingLinks(config: ResolvedConsoleConfig): string[] {
+  const manifest = readManifest(config.profileName)
+  if (!manifest) return []
+  const dir = profileDir(config.profileName)
+  const broken: string[] = []
+  for (const [name, spec] of Object.entries(manifest.dependencies ?? {})) {
+    if (!spec.startsWith('link:')) continue
+    const target = spec.slice('link:'.length)
+    const resolved = path.isAbsolute(target) ? target : path.resolve(dir, target)
+    if (!existsSync(resolved)) broken.push(`${name} (${spec})`)
+  }
+  return broken
+}
+
+/** Offline pre-flight problems, mirroring the native dialog's checking phase. */
+export interface PluginProblem {
+  kind: 'invalid' | 'installed' | 'links'
+  detail?: string
+}
+
+/** Package-name reading of an install spec, when derivable offline. */
+function specPackageName(config: ResolvedConsoleConfig, spec: string): string | null {
+  const trimmed = spec.trim()
+  if (trimmed.startsWith('link:') || trimmed.startsWith('file:')) {
+    const target = trimmed.slice(trimmed.indexOf(':') + 1)
+    const resolved = path.isAbsolute(target) ? target : path.resolve(profileDir(config.profileName), target)
+    try {
+      const manifest = JSON.parse(readFileSync(path.join(resolved, 'package.json'), 'utf8')) as { name?: string }
+      return typeof manifest.name === 'string' ? manifest.name : null
+    } catch {
+      return null
+    }
+  }
+  if (/^https?:\/\//.test(trimmed) || trimmed.startsWith('git')) return null
+  if (trimmed.startsWith('@')) {
+    const at = trimmed.indexOf('@', 1)
+    return at === -1 ? trimmed : trimmed.slice(0, at)
+  }
+  const at = trimmed.indexOf('@')
+  return at === -1 ? trimmed : trimmed.slice(0, at)
+}
+
+/**
+ * Refuse installs before they start when the spec is malformed, already a
+ * profile dependency, or the profile carries dangling link: dependencies
+ * (the official CLI's post-install reconciliation exits 1 on those). Mirrors
+ * the native manager's checking phase and its refusal screen.
+ */
+export function checkProblems(config: ResolvedConsoleConfig, raw: unknown): PluginProblem[] {
+  const spec = typeof raw === 'string' ? raw.trim() : ''
+  if (!spec || spec.length > 512 || /[\r\n]/.test(spec) || spec.startsWith('-')) {
+    return [{ kind: 'invalid', detail: 'a non-empty package name, git URL, tarball, or absolute path is required' }]
+  }
+  const problems: PluginProblem[] = []
+  const broken = danglingLinks(config)
+  if (broken.length > 0) problems.push({ kind: 'links', detail: broken.join(', ') })
+  const name = specPackageName(config, spec)
+  if (name && Object.hasOwn(readManifest(config.profileName)?.dependencies ?? {}, name)) {
+    problems.push({ kind: 'installed' })
+  }
+  return problems
+}
+
 /** Validate a remove/enable target: an existing profile dependency, not the engine core. */
 function validateName(config: ResolvedConsoleConfig, raw: unknown, allowProtected = false): string {
   const name = typeof raw === 'string' ? raw.trim() : ''
@@ -205,9 +294,30 @@ async function runCliOperation(config: ResolvedConsoleConfig, env: PluginEnv, ki
   const argv = ['dsh', 'plugin', '--profile', config.profileName, kind === 'install' ? 'add' : 'remove', target]
   if (registryUrl) argv.push('--registry=' + registryUrl)
   audit(config, { ts: startedAt, event: 'plugin-' + kind + '-begin', profile: config.profileName, target: redact(target), ...(registryUrl ? { registry: registryUrl } : {}) })
-  const result = await run(argv, { timeoutMs: kind === 'install' ? 900_000 : 600_000, extraPath: env.extraPath })
-  const output = tail(redact((result.stdout + '\n' + result.stderr).trim()), 4000)
+  // The native dialog streams the install log; mirror every chunk into the
+  // operation state so /plugins/operation returns a growing tail.
+  const before = Object.keys(readManifest(config.profileName)?.dependencies ?? {})
+  let output = ''
+  const streaming = runStreaming(argv, { timeoutMs: kind === 'install' ? 900_000 : 600_000, extraPath: env.extraPath }, (chunk) => {
+    output = (output + chunk).slice(-4000)
+    last = { ...last, output: redact(output.trim()) }
+  })
+  const result = await streaming.promise
   const failed = result.code !== 0
+  // Name what the add introduced (before/after dependency diff) so the done
+  // screen can offer version, bundle flag and location like the native one.
+  let installed: PluginOperation['installed']
+  if (!failed && kind === 'install') {
+    const after = readManifest(config.profileName)?.dependencies ?? {}
+    installed = Object.entries(after)
+      .filter(([name]) => !before.includes(name))
+      .map(([name, spec]) => ({
+        name,
+        spec,
+        version: readInstalledManifest(config.profileName, name)?.version ?? null,
+        bundle: readInstalledManifest(config.profileName, name)?.dsh?.bundle !== undefined,
+      }))
+  }
   const state: PluginOperation = {
     running: false,
     kind,
@@ -216,10 +326,12 @@ async function runCliOperation(config: ResolvedConsoleConfig, env: PluginEnv, ki
     finishedAt: new Date().toISOString(),
     exitCode: result.code,
     timedOut: result.timedOut,
-    output,
+    output: tail(redact((result.stdout + '\n' + result.stderr).trim()), 4000),
     error: failed
       ? (result.timedOut ? 'command timed out' : `exit ${result.code}`)
       : null,
+    installed,
+    profileDir: profileDir(config.profileName),
   }
   last = state
   audit(config, {
@@ -239,6 +351,14 @@ export function runPluginOperation(config: ResolvedConsoleConfig, env: PluginEnv
     return Promise.reject(new PluginRequestError('refusing to manage plugins of the desktop profile'))
   }
   if (inFlight) return Promise.reject(new PluginRequestError('another plugin operation is already running'))
+  const broken = danglingLinks(config)
+  if (broken.length > 0) {
+    return Promise.reject(new PluginRequestError(
+      `dangling link dependencies in the ${config.profileName} profile — the official installer's bundle reconciliation would fail; repair them first:\n  `
+      + broken.join('\n  ')
+      + `\nFix: correct the targets in package.json and the pnpm-lock version fields, then run 'dsh plugin --profile ${config.profileName} install'.`,
+    ))
+  }
   const prepared = kind === 'install' ? validateSpec(target) : validateName(config, target)
   const registryUrl = kind === 'install' ? validateRegistry(registry) : null
   last = { running: true, kind, target: prepared, startedAt: new Date().toISOString(), finishedAt: null, exitCode: null, timedOut: false, output: '', error: null }

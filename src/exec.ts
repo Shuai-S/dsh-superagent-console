@@ -7,7 +7,7 @@
  * directory, the configured `extraPath` entries, and the app's bundled
  * dsh CLI directory are prepended (in that order; user entries win).
  */
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
@@ -84,6 +84,52 @@ export function run(argv: string[], options: RunOptions = {}): Promise<RunResult
       },
     )
   })
+}
+
+export interface StreamingRun {
+  promise: Promise<RunResult>
+  /** Terminate the child (SIGKILL); the promise still resolves with the partial result. */
+  kill: () => void
+}
+
+/**
+ * Spawn like {@link run} but deliver output as it arrives: the plugins API
+ * mirrors each chunk into the operation state so the dialog can stream the
+ * install log the way the native manager does. Output stays bounded by the
+ * consumer (it keeps a tail); this runner only concatenates what it saw.
+ */
+export function runStreaming(argv: string[], options: RunOptions = {}, onChunk?: (text: string) => void): StreamingRun {
+  const [file, ...args] = argv
+  if (!file) throw new Error('runStreaming() needs a command')
+  const { cwd, timeoutMs = 30_000, extraPath } = options
+  const child = spawn(file, args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PATH: spawnPath(extraPath) },
+    windowsHide: true,
+  })
+  let stdout = ''
+  let stderr = ''
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill('SIGKILL')
+  }, timeoutMs)
+  child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); onChunk?.(chunk.toString()) })
+  child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); onChunk?.(chunk.toString()) })
+  const promise = new Promise<RunResult>((resolve) => {
+    const startedAt = Date.now()
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      resolve({ code: -1, stdout, stderr: stderr + String(error), timedOut })
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      const hitTimeout = timedOut && Date.now() - startedAt >= timeoutMs - 1
+      resolve({ code: code ?? (timedOut || hitTimeout ? -1 : 0), stdout, stderr, timedOut: timedOut || hitTimeout })
+    })
+  })
+  return { promise, kill: () => { clearTimeout(timer); child.kill('SIGKILL') } }
 }
 
 /** Truncate captured output for audit logging. */

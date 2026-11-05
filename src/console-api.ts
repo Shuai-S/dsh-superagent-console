@@ -16,6 +16,7 @@
  *
  *   GET  /superagent-console/api/plugins            roster + last operation
  *   GET  /superagent-console/api/plugins/operation  operation state only
+ *   POST /superagent-console/api/plugins/check      { spec } — offline pre-flight problems, 200 sync
  *   POST /superagent-console/api/plugins/install    { spec } — 202, async
  *   POST /superagent-console/api/plugins/remove     { name } — 202, async
  *   POST /superagent-console/api/plugins/enable     { name, enabled } — 200, sync
@@ -28,6 +29,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ResolvedConsoleConfig, SyncMode } from './config.ts'
 import { detect, type DetectResult } from './detect.ts'
 import {
+  checkProblems,
   PluginRequestError,
   pluginBusy,
   pluginOperation,
@@ -253,6 +255,11 @@ export function consoleApiHandler(options: ConsoleApiOptions): (req: IncomingMes
         }
         case 'GET /superagent-console/api/plugins/operation': {
           sendJson(res, 200, pluginOperation())
+          return
+        }
+        case 'POST /superagent-console/api/plugins/check': {
+          const body = await readJson<{ spec?: unknown }>(req)
+          sendJson(res, 200, { problems: checkProblems(config, body.spec) })
           return
         }
         case 'POST /superagent-console/api/plugins/install': {
